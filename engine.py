@@ -1,5 +1,6 @@
 from itertools import product
 import numpy as np
+import heapq
 
 class VmapEngine:
     def group_index(self, rv):
@@ -91,8 +92,37 @@ class VmapEngine:
     #         for key in N:
     #             ans.append(N[key])
     #     return ans
+    def run_greedy_set(self, universe, sets):
+        uncovered = set(universe)
+        for key in sets:
+            sets[key] = set(sets[key])
+        heap = []
+        counter = 0
+        for key in sets:
+            heap.append((-len(sets[key]), counter, key))
+            counter += 1
+        heapq.heapify(heap)
+        result = {}
+        while uncovered and heap:
+            # ---- lazy-deletion loop ----
+            while heap:
+                neg_count, _, key = heapq.heappop(heap)   # O(log m)
+                real_count = len(sets[key] & uncovered)
+                if real_count == 0:
+                    continue
+                if real_count == -neg_count:
+                    break
+                heapq.heappush(heap, (-real_count, counter, key))
+                counter += 1
+            else:
+                break
+            contribution = sets[key] & uncovered        # new elements only
+            uncovered   -= contribution
+            result[key] = contribution
+        return result
 
-    def run_vmap(self, RVs):
+
+    def run_vmap(self, RVs):    
         hash_map = {}
         for rv in RVs:
             if(rv.op.name == "Constant" or rv.op.name == "Index"):
@@ -101,8 +131,6 @@ class VmapEngine:
             if hash_key not in hash_map:
                 hash_map[hash_key] = []
             hash_map[hash_key].append(rv)
-            print(hash_key) 
-
         for key in hash_map:
             bucket = {}
             # print(f"Group:{key}")
@@ -118,8 +146,9 @@ class VmapEngine:
                     if(tmp not in bucket):
                         bucket[tmp] = []
                     bucket[tmp].append(rv)
-            for key2 in bucket:
-                print(f"Group:{key2}, RVs:{[rv._n for rv in bucket[key2]]}")
+            final_bucket = self.run_greedy_set(hash_map[key], bucket)
+            for key2 in final_bucket:
+                print(f"Key:{key2}, RVs:{[rv._n for rv in final_bucket[key2]]}")
 
 
         # for key, group in hash_map.items():
