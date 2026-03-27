@@ -1,6 +1,7 @@
 from itertools import product
 import numpy as np
 import heapq
+from pangolin.ir import * 
 
 class VmapEngine:
     def group_index(self, rv):
@@ -124,6 +125,7 @@ class VmapEngine:
 
     def run_vmap(self, RVs):    
         hash_map = {}
+        index_rv = {}
         for rv in RVs:
             if(rv.op.name == "Constant" or rv.op.name == "Index"):
                 continue
@@ -138,6 +140,7 @@ class VmapEngine:
                 index = []
                 for p in rv.parents:
                     index.append(self.group_index(p))
+                index_rv[rv] = index
                 get_axes, remaining = self.deep_hash(rv, index)
                 for i in range(len(get_axes)):
                     axes = get_axes[i]
@@ -148,8 +151,62 @@ class VmapEngine:
                     bucket[tmp].append(rv)
             final_bucket = self.run_greedy_set(hash_map[key], bucket)
             for key2 in final_bucket:
-                print(f"Key:{key2}, RVs:{[rv._n for rv in final_bucket[key2]]}")
-
+                final_bucket[key2] = list(final_bucket[key2])
+            for key2 in final_bucket:
+                axes = []
+                remain = []
+                c_rv = []
+                axis_size = 0
+                for i in range(len(key2)//2):
+                    axes.append(key2[i])
+                need_axis_size = all(el == "None" for el in axes)
+                if(need_axis_size):
+                    axis_size = len(final_bucket[key2])
+                for i in range(len(key2)//2, len(key2)):
+                    if(isinstance(key2[i], str)):
+                        remain.append(key2[i])
+                    else:
+                        remain.append(np.frombuffer(key2[i]))
+                for i in range(len(key2)//2):
+                    ndim = len(index_rv[final_bucket[key2][0]][i])
+                    idd = 0
+                    c_rv.append([])
+                    if(remain[i] == "NotIndex"):
+                        c[i].append("NotIndex")
+                        continue
+                    for j in range(ndim):
+                        arr = []
+                        if(j == axes[i]):
+                            for rv in final_bucket[key2]:
+                                arr.append(index_rv[rv][i][j])
+                        else:
+                            arr = remain[i][idd]
+                            idd+=1
+                        new_rv = RV(Constant(arr))
+                        c_rv[-1].append(new_rv)
+                new_p = []
+                for i in range(len(key2)//2):
+                    args = []
+                    if(isinstance(c_rv[i], str)):
+                        new_p.append(key[i+1])
+                    else:
+                        args.append(Index())
+                        args.append(key[i+1])
+                        for var in c_rv[i]:
+                            args.append(var)
+                        new_p.append(RV(*args))
+                    axes[i] = None if axes[i] == "None" else axes[i]
+                    if(new_p[i].ndim == 1):
+                        axes[i] = 0 if axes[i] != None else None
+                if(need_axis_size):
+                    op = VMap(key[0], in_axes = tuple(axes), axis_size = axis_size)
+                else:
+                    op = VMap(key[0], in_axes = tuple(axes))
+                final_args = [op]
+                for x in new_p:
+                    final_args.append(x)
+                vmap = RV(*final_args)
+                print(vmap)
 
         # for key, group in hash_map.items():
         #     print(f"Group: {key}, RVs: {[rv._n for rv in group]}")

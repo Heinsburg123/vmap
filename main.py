@@ -9,5 +9,6 @@ e = RV(Index(), a, b, b)
 f = RV(Index(), a, c, b)
 g1 = RV(Add(), d, e)
 g2 = RV(Add(), e, f)
+h = RV(Mul(), g1, g2)
 
 VmapEngine().run_vmap([a, b, c, d, e, f, g1, g2])
