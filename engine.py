@@ -206,10 +206,9 @@ class VmapEngine:
                 for x in new_p:
                     final_args.append(x)
                 vmap = RV(*final_args)
-                print(vmap)
 
-        # for key, group in hash_map.items():
-        #     print(f"Group: {key}, RVs: {[rv._n for rv in group]}")
+        for key, group in hash_map.items():
+            print(f"Group: {key}, RVs: {[rv._n for rv in group]}")
                 
         
         
