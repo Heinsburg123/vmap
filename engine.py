@@ -137,6 +137,8 @@ class VmapEngine:
             for key2 in final_bucket:
                 final_bucket[key2] = list(final_bucket[key2])
             for key2 in final_bucket:
+                if(len(final_bucket[key2]) == 1):
+                    continue
                 axes = []
                 remain = []
                 c_rv = []
@@ -153,7 +155,7 @@ class VmapEngine:
                     if(isinstance(key2[i], str)):
                         remain.append(key2[i])
                     else:
-                        remain.append(np.frombuffer(key2[i]))
+                        remain.append(np.frombuffer(key2[i], dtype=int))
                 #Looping through the parents of the RVs         
                 for i in range(len(key2)//2):
                     #Get the dimension of the parent that we are batching on
@@ -162,7 +164,7 @@ class VmapEngine:
                     #If the parent is not an index then we just add the parent RV 
                     # as an argument to the new vmap RV
                     if(isinstance(remain[i], str) and remain[i] == "NotIndex"):
-                        c_rv[i].append("NotIndex")
+                        c_rv.append("NotIndex")
                         continue
                     #c_rv is to store the RVs that we will use as 
                     # arguments for the new vmap RV that we are creating.
@@ -184,6 +186,7 @@ class VmapEngine:
                         #This is the RV that we will use as an argument for the new vmap
                         new_rv = RV(Constant(arr))
                         c_rv[-1].append(new_rv)
+                # print(key2)
                 new_p = []
                 #Looping through all parents. Now we start creating the Index RVs
                 for i in range(len(key2)//2):
