@@ -48,11 +48,11 @@ class VmapEngine:
         # Generate all combinations by selecting one element from each vector
         for combination in product(*possible_axes):
             ans.append(list(combination))
-        # print(ans)
         remaining = []
         for comb in ans:
             less = []
-            # print(index_lst)
+            #This is trying to get the remaining index pattern after 
+            # removing the axis that we are batching on
             for i,idx in enumerate(comb):
                 if(idx == "None"):
                     if(isinstance(index_lst[i], str)):
@@ -63,36 +63,7 @@ class VmapEngine:
                     less.append(np.array(index_lst[i][:idx] + index_lst[i][idx+1:]).tobytes())
             remaining.append(less)
         return ans, remaining
-        
 
-    # def return_indexes(self, RVs, index_list):
-    #     ans = []
-    #     exception = []
-    #     M = {}
-    #     for i in range(len(RVs)):
-    #         rv = RVs[i]
-    #         dp = (rv, index_list[i])
-    #         if(rv.get_shape() not in M):
-    #             M[rv.get_shape()] = []
-    #         M[rv.get_shape()].append(dp)
-    #     for shape in M:
-    #         N = {}
-    #         for dp in M[shape]:
-    #             if dp[1] == "NotIndex":
-    #                 ans.append(["NotIndex"])
-    #                 break
-    #             if len(dp[1][0])!=1:
-    #                 exception.append(dp[0])
-    #             tp = []
-    #             for i in range(1, len(dp[1])):
-    #                 tp.append(tuple(dp[1][i]))
-    #             tp = tuple(tp)
-    #             if(tp not in N):
-    #                 N[tp] = []
-    #             N[tp].append(dp[0])
-    #         for key in N:
-    #             ans.append(N[key])
-    #     return ans
     def run_greedy_set(self, universe, sets):
         uncovered = set(universe)
         for key in sets:
@@ -133,22 +104,35 @@ class VmapEngine:
             if hash_key not in hash_map:
                 hash_map[hash_key] = []
             hash_map[hash_key].append(rv)
+        #This part is going through all the most general hash that is the Ops and parents
         for key in hash_map:
             bucket = {}
-            # print(f"Group:{key}")
             for rv in hash_map[key]:
                 index = []
+                #Here is when we are going through the parents of the RV and getting 
+                # the index pattern for each parent and storing it in index  
                 for p in rv.parents:
                     index.append(self.group_index(p))
+                #The index_rv dictionary helps us later to try and get the indexing pattern
+                #for each RV 
                 index_rv[rv] = index
+                #Now we have the index pattern for each parent of the RV and the remaining
+                # index pattern if we were to batch on a certain axis. Now 
+                # we want to group them by the possible axes that we can batch on.
                 get_axes, remaining = self.deep_hash(rv, index)
+                #Going through all the possible axes or hash 
                 for i in range(len(get_axes)):
                     axes = get_axes[i]
                     rmd = remaining[i]
+                    #tmp is now the key for the bucket that we are grouping the RVs into.
+                    #It consists of the axes that we are batching on and the remaining 
+                    # index pattern after removing those axes
                     tmp = tuple(axes+rmd)
                     if(tmp not in bucket):
                         bucket[tmp] = []
                     bucket[tmp].append(rv)
+            #Run greedy set cover on the buckets to find the best grouping 
+            # of RVs to batch together
             final_bucket = self.run_greedy_set(hash_map[key], bucket)
             for key2 in final_bucket:
                 final_bucket[key2] = list(final_bucket[key2])
@@ -157,23 +141,38 @@ class VmapEngine:
                 remain = []
                 c_rv = []
                 axis_size = 0
+                #Get the axes that we are batching on 
                 for i in range(len(key2)//2):
                     axes.append(key2[i])
+                #If all is None then we need axis_size 
                 need_axis_size = all(el == "None" for el in axes)
                 if(need_axis_size):
                     axis_size = len(final_bucket[key2])
+                #Getting the remaining index pattern after removing the batching axes
                 for i in range(len(key2)//2, len(key2)):
                     if(isinstance(key2[i], str)):
                         remain.append(key2[i])
                     else:
                         remain.append(np.frombuffer(key2[i]))
+                #Looping through the parents of the RVs         
                 for i in range(len(key2)//2):
+                    #Get the dimension of the parent that we are batching on
                     ndim = len(index_rv[final_bucket[key2][0]][i])
                     idd = 0
-                    c_rv.append([])
-                    if(remain[i] == "NotIndex"):
-                        c[i].append("NotIndex")
+                    #If the parent is not an index then we just add the parent RV 
+                    # as an argument to the new vmap RV
+                    if(isinstance(remain[i], str) and remain[i] == "NotIndex"):
+                        c_rv[i].append("NotIndex")
                         continue
+                    #c_rv is to store the RVs that we will use as 
+                    # arguments for the new vmap RV that we are creating.
+                    c_rv.append([])
+                    #Loop through the dimensions of the parent and 
+                    # get the indexing pattern for each dimension. 
+                    # If we are batching on that dimension then we need 
+                    # to create an index pattern that gets all the indexes of all RVs 
+                    # on parent i on dimension j. If we are not batching on that 
+                    # dimension then we can just use the remaining index pattern 
                     for j in range(ndim):
                         arr = []
                         if(j == axes[i]):
@@ -182,11 +181,15 @@ class VmapEngine:
                         else:
                             arr = remain[i][idd]
                             idd+=1
+                        #This is the RV that we will use as an argument for the new vmap
                         new_rv = RV(Constant(arr))
                         c_rv[-1].append(new_rv)
                 new_p = []
+                #Looping through all parents. Now we start creating the Index RVs
                 for i in range(len(key2)//2):
                     args = []
+                    #If the parent is not an index then we just add the parent RV as 
+                    # an argument to the new vmap RV
                     if(isinstance(c_rv[i], str)):
                         new_p.append(key[i+1])
                     else:
@@ -206,9 +209,10 @@ class VmapEngine:
                 for x in new_p:
                     final_args.append(x)
                 vmap = RV(*final_args)
+                print(f"Created vmap: {vmap}")
 
-        for key, group in hash_map.items():
-            print(f"Group: {key}, RVs: {[rv._n for rv in group]}")
+        # for key, group in hash_map.items():
+        #     print(f"Group: {key}, RVs: {[rv._n for rv in group]}")
                 
         
         
