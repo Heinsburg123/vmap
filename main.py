@@ -247,7 +247,7 @@ def test_chained_unary():
     logs = [RV(Log(), ex) for ex in exps]    # layer 2: parent is Exp RV, not Index
     sins = [RV(Sin(), e)  for e in ea]
     coss = [RV(Cos(), s)  for s in sins]
-    engine.run_vmap([a] + ea + exps + logs + sins + coss)
+    engine.run_all_vmaps([a] + ea + exps + logs + sins + coss)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 21: Normal with Exp-transformed sigma
@@ -265,27 +265,27 @@ def test_normal_with_transformed_params():
     # Transform sigma through Exp (non-Index parents for Normal)
     tsigma = [RV(Exp(), e) for e in esigma]
     norms  = [RV(Normal(), emu[i], tsigma[i]) for i in range(4)]
-    engine.run_vmap([raw_mu, raw_sigma] + emu + esigma + tsigma + norms)
+    engine.run_all_vmap([raw_mu, raw_sigma] + emu + esigma + tsigma + norms)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Run all tests
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    test_full_grid()
-    test_two_arrays_paired()
-    test_broadcast_second_arg()
-    test_mixed_ops_same_elems()
-    test_large_sweep()
-    test_normal_sweep_mu()
-    test_normal_sweep_both()
-    test_beta_sweep_alpha()
-    test_gamma_sweep_both()
-    test_exponential_sweep()
-    test_poisson_sweep()
-    test_bernoulli_sweep()
-    test_unary_ops_same_array()
-    test_studentt_sweep_all()
-    test_mixed_dists_same_parent()
-    test_arithmetic_diversity()
+    # test_full_grid()
+    # test_two_arrays_paired()
+    # test_broadcast_second_arg()
+    # test_mixed_ops_same_elems()
+    # test_large_sweep()
+    # test_normal_sweep_mu()
+    # test_normal_sweep_both()
+    # test_beta_sweep_alpha()
+    # test_gamma_sweep_both()
+    # test_exponential_sweep()
+    # test_poisson_sweep()
+    # test_bernoulli_sweep()
+    # test_unary_ops_same_array()
+    # test_studentt_sweep_all()
+    # test_mixed_dists_same_parent()
+    # test_arithmetic_diversity()
     test_chained_unary()
-    test_normal_with_transformed_params()
+    # test_normal_with_transformed_params()

@@ -2,8 +2,72 @@ from itertools import product
 import numpy as np
 import heapq
 from pangolin.ir import * 
+from collections import deque
 
 class VmapEngine:
+    adj = {}
+    visited = {}
+
+    def DFS(self, rv):
+        for p in rv.parents:
+            tmp = p
+            while(tmp.op.name == "Index"):
+                tmp = tmp.parents[0]
+            # Always add the edge parent -> rv so BFS can propagate ranks,
+            # even when tmp was already registered by an earlier DFS call.
+            if tmp not in self.adj:
+                self.adj[tmp] = []
+            self.adj[tmp].append(rv)
+            # Only recurse into tmp if unvisited; prevents infinite loops
+            # without suppressing edges to already-registered parents.
+            if tmp not in self.visited:
+                self.visited[tmp] = True
+                self.DFS(tmp)
+
+    def level_ranking(self, RVs):
+        # Reset per-call so repeated calls don't accumulate stale edges.
+        self.adj = {}
+        self.visited = {}
+        rank = {}
+        in_degree = {}
+        queue = deque()
+        bucket = {}
+        order_bucket = []
+        for rv in RVs:
+            if(rv not in self.visited and rv.op.name != "Index"):
+                self.visited[rv] = True
+                self.adj[rv] = []
+                self.DFS(rv)
+        for rv in RVs:
+            if(rv.op.name == "Constant"):
+                in_degree[rv] = 0
+                queue.append(rv);
+                rank[rv] = 0
+            elif(rv.op.name != "Index"):
+                in_degree[rv] = len(rv.parents)
+
+        while(queue):
+            u = queue.popleft()
+            for v in self.adj[u]:
+                in_degree[v] -= 1
+                if(in_degree[v] == 0):
+                    for p in v.parents:
+                        tmp = p
+                        if(p.op.name == "Index"):
+                            tmp = tmp.parents[0]
+                        rank[v] = max(rank[v],rank[tmp]+1) if v in rank else rank[tmp]+1
+                    queue.append(v)
+
+        for rv in rank:
+            if(rank[rv] not in bucket):
+                bucket[rank[rv]] = []
+            bucket[rank[rv]].append(rv)
+
+        for i in range(0, max(bucket.keys())+1):
+            if(i in bucket):
+                order_bucket.append(bucket[i])
+        return order_bucket
+
     def group_index(self, rv):
         lst = []
         if(rv.op.name != "Index"):
@@ -20,7 +84,7 @@ class VmapEngine:
             else:
                 ans.append("v_"+str(idd._n))
         return ans
-
+    
     def compute_hash(self, rv):
         lst = [rv.op]
         for p in rv.parents:
@@ -97,6 +161,11 @@ class VmapEngine:
     def run_vmap(self, RVs):    
         hash_map = {}
         index_rv = {}
+        M = {}  # Maps original RV -> replacement RV
+        # Passthroughs: Constants and Index RVs map to themselves
+        for rv in RVs:
+            if rv.op.name == "Constant" or rv.op.name == "Index":
+                M[rv] = rv
         for rv in RVs:
             if(rv.op.name == "Constant" or rv.op.name == "Index"):
                 continue
@@ -138,6 +207,8 @@ class VmapEngine:
                 final_bucket[key2] = list(final_bucket[key2])
             for key2 in final_bucket:
                 if(len(final_bucket[key2]) == 1):
+                    # Singleton: no batching, original RV maps to itself
+                    M[final_bucket[key2][0]] = final_bucket[key2][0]
                     continue
                 axes = []
                 remain = []
@@ -214,9 +285,76 @@ class VmapEngine:
                 vmap = RV(*final_args)
                 print(f"Created vmap: {vmap}")
 
-        # for key, group in hash_map.items():
-        #     print(f"Group: {key}, RVs: {[rv._n for rv in group]}")
-                
+                # Map each original RV to RV(Index(), vmap, RV(Constant(i))).
+                # vmap always produces a leading batch axis of length axis_size (or
+                # the number of batched RVs when batching over an existing axis), so
+                # vmap[i] is the equivalent of the i-th original RV.
+                for i, original_rv in enumerate(final_bucket[key2]):
+                    M[original_rv] = RV(Index(), vmap, RV(Constant(i)))
+
+        return M
+
+    def substitute_parents(self, rv, M):
+        """
+        Return a version of rv with all parents recursively remapped through M.
+        Because RVs are frozen, any substitution produces a new RV.
+        Index nodes are not ranked (and therefore not keys in M), so we recurse
+        through them to remap their own parents before rebuilding the chain.
+        """
+        if rv in M:
+            return M[rv]
+        new_parents = []
+        changed = False
+        for p in rv.parents:
+            new_p = self.substitute_parents(p, M)
+            new_parents.append(new_p)
+            if new_p is not p:
+                changed = True
+        if not changed:
+            return rv
+        return RV(rv.op, *new_parents)
+
+    def run_all_vmaps(self, RVs):
+        """
+        Run vmap level by level over the DAG.
+
+        level_ranking returns lists of RVs in topological order.  For each
+        level we:
+          1. Rebuild every RV in the level with parents already remapped by M
+             (necessary because frozen RVs cannot be mutated in place).
+          2. Run run_vmap on those substituted RVs so the engine sees the
+             updated parent structure and can discover new batching
+             opportunities that only exist after earlier levels were fused.
+          3. Merge the level's local mapping back into the global M so that
+             later levels pick it up automatically via substitute_parents.
+
+        Returns M, a dict mapping every original RV to its final replacement.
+        """
+        order_bucket = self.level_ranking(RVs)
+        M = {}  # original RV -> final replacement RV
+
+        for group in order_bucket:
+            # --- Step 1: rebuild each RV with substituted parents ---
+            # Track substituted RV -> original RV so we can write back into M
+            sub_to_orig = {}
+            substituted_group = []
+
+            for rv in group:
+                sub_rv = self.substitute_parents(rv, M)
+                sub_to_orig[sub_rv] = rv
+                substituted_group.append(sub_rv)
+
+            # --- Step 2: attempt vmap across the substituted group ---
+            group_M = self.run_vmap(substituted_group)
+
+            # --- Step 3: merge local results into the global mapping ---
+            # group_M maps substituted_rv -> final_rv (Index into vmap, or self).
+            # We want M[original_rv] -> final_rv.
+            for sub_rv, orig_rv in sub_to_orig.items():
+                M[orig_rv] = group_M.get(sub_rv, sub_rv)
         
-        
-            
+        for rv in RVs:
+            if rv in M:
+                print(f"{rv} -> {M[rv]}")
+
+        return M
