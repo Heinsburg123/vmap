@@ -38,13 +38,32 @@ class VmapEngine:
                 self.visited[rv] = True
                 self.adj[rv] = []
                 self.DFS(rv)
+        # Build the set of RVs that participate in the ranking so we can
+        # count in-degree only from parents that are actually inside this set.
+        # Parents outside the set (e.g. original data nodes when ranking a
+        # frontier of new vmap nodes) must not inflate in-degree, otherwise
+        # those nodes never reach zero and are silently dropped.
+        rv_set = {rv for rv in RVs if rv.op.name != "Index"}
+
         for rv in RVs:
             if(rv.op.name == "Constant"):
                 in_degree[rv] = 0
-                queue.append(rv);
+                queue.append(rv)
                 rank[rv] = 0
             elif(rv.op.name != "Index"):
-                in_degree[rv] = len(rv.parents)
+                # Count only parents whose resolved base node is in rv_set.
+                internal_parents = 0
+                for p in rv.parents:
+                    tmp = p
+                    while tmp.op.name == "Index":
+                        tmp = tmp.parents[0]
+                    if tmp in rv_set:
+                        internal_parents += 1
+                in_degree[rv] = internal_parents
+                # Node with no in-set parents is a root: treat as rank 0.
+                if internal_parents == 0:
+                    queue.append(rv)
+                    rank[rv] = 0
 
         while(queue):
             u = queue.popleft()
@@ -55,7 +74,16 @@ class VmapEngine:
                         tmp = p
                         if(p.op.name == "Index"):
                             tmp = tmp.parents[0]
+                        # Skip parents outside the current frontier (not in rank).
+                        # External nodes are already computed; their effective rank
+                        # is below everything in this pass, so they don't constrain
+                        # the ordering here.
+                        if tmp not in rank:
+                            continue
                         rank[v] = max(rank[v],rank[tmp]+1) if v in rank else rank[tmp]+1
+                    # If all parents were external, treat this node as a root.
+                    if v not in rank:
+                        rank[v] = 0
                     queue.append(v)
 
         for rv in rank:
@@ -112,6 +140,16 @@ class VmapEngine:
         # Generate all combinations by selecting one element from each vector
         for combination in product(*possible_axes):
             ans.append(list(combination))
+        def _serialize_index_list(lst):
+            # Serialize each element individually to handle mixed 0-d/1-d shapes.
+            # Layout per element: [ndim: int64][shape dims: int64*ndim][data bytes]
+            parts = []
+            for el in lst:
+                arr = np.asarray(el)
+                header = np.array([arr.ndim] + list(arr.shape), dtype=np.int64).tobytes()
+                parts.append(header + arr.tobytes())
+            return b"|".join(parts)
+
         remaining = []
         for comb in ans:
             less = []
@@ -122,9 +160,11 @@ class VmapEngine:
                     if(isinstance(index_lst[i], str)):
                         less.append(index_lst[i])
                     else:
-                        less.append(np.array(index_lst[i]).tobytes())
+                        less.append(_serialize_index_list(index_lst[i]))
                 else:
-                    less.append(np.array(index_lst[i][:idx] + index_lst[i][idx+1:]).tobytes())
+                    less.append(_serialize_index_list(
+                        index_lst[i][:idx] + index_lst[i][idx+1:]
+                    ))
             remaining.append(less)
         return ans, remaining
 
@@ -217,16 +257,46 @@ class VmapEngine:
                 #Get the axes that we are batching on 
                 for i in range(len(key2)//2):
                     axes.append(key2[i])
+
+                # Sort the group by the batched index values so that all vmaps
+                # covering the same logical structure (e.g. every column-group
+                # has rows [0,1,2]) end up with identical internal orderings.
+                # Without this, the greedy set cover may yield e.g. [2,0,1]
+                # for one column-group and [0,1,2] for another, making their
+                # "remaining" byte-strings differ and preventing run_to_fixpoint
+                # from batching them together in the next iteration.
+                def _sort_key(rv):
+                    return tuple(
+                        int(index_rv[rv][i][axes[i]])
+                        for i in range(len(axes))
+                        if axes[i] != "None"
+                    )
+                final_bucket[key2].sort(key=_sort_key)
+
                 #If all is None then we need axis_size 
                 need_axis_size = all(el == "None" for el in axes)
                 if(need_axis_size):
                     axis_size = len(final_bucket[key2])
+                def _deserialize_index_list(blob):
+                    # Inverse of _serialize_index_list.
+                    # Layout: [ndim: int64][shape dims: int64*ndim][data bytes]
+                    # Guard: b''.split(b'|') yields [b''] so skip empty chunks.
+                    result = []
+                    for part in blob.split(b"|"):
+                        if not part:
+                            continue
+                        ndim  = int(np.frombuffer(part[:8], dtype=np.int64)[0])
+                        shape = tuple(np.frombuffer(part[8:8+8*ndim], dtype=np.int64).tolist())
+                        data  = np.frombuffer(part[8+8*ndim:], dtype=np.int64).reshape(shape)
+                        result.append(data)
+                    return result
+
                 #Getting the remaining index pattern after removing the batching axes
                 for i in range(len(key2)//2, len(key2)):
                     if(isinstance(key2[i], str)):
                         remain.append(key2[i])
                     else:
-                        remain.append(np.frombuffer(key2[i], dtype=int))
+                        remain.append(_deserialize_index_list(key2[i]))
                 #Looping through the parents of the RVs         
                 for i in range(len(key2)//2):
                     #Get the dimension of the parent that we are batching on
@@ -285,14 +355,72 @@ class VmapEngine:
                 vmap = RV(*final_args)
                 print(f"Created vmap: {vmap}")
 
-                # Map each original RV to RV(Index(), vmap, RV(Constant(i))).
-                # vmap always produces a leading batch axis of length axis_size (or
-                # the number of batched RVs when batching over an existing axis), so
-                # vmap[i] is the equivalent of the i-th original RV.
+                # Map each original RV to an index into vmap along its leading axis.
+                # vmap.shape == (N, d1, d2, ...) where (d1,...) == original_rv.shape.
+                # Index requires exactly ndim indices; output shape = concat of index shapes.
+                # A scalar index (shape ()) contributes nothing; a 1-D range of length d
+                # contributes (d,). So index(vmap, i, range(d1),...) -> shape (d1,...). 
                 for i, original_rv in enumerate(final_bucket[key2]):
-                    M[original_rv] = RV(Index(), vmap, RV(Constant(i)))
+                    index_args = [Index(), vmap, RV(Constant(i))]
+                    for dim_size in vmap.shape[1:]:  # no-op for 1-D vmaps
+                        index_args.append(RV(Constant(list(range(dim_size)))))
+                    M[original_rv] = RV(*index_args)
 
         return M
+
+    def run_to_fixpoint(self, RVs):
+        """
+        Repeatedly apply run_all_vmaps until no new vmap opportunities remain.
+
+        A single call to run_all_vmaps may fuse N scalar RVs into one vmap.
+        But if there were M such groups, we now have M vmap nodes that share
+        the same op/parent structure and may themselves be fuseable — this pass
+        repeats until that process stabilises.
+
+        Composition across passes is done with substitute_parents: if pass 1
+        gives  orig → Index(vmap1, i)  and pass 2 fuses vmap1 nodes so that
+        vmap1 → Index(vmap2, j),  then orig ends up as Index(Index(vmap2,j),i),
+        which correctly recovers the original element from the doubly-batched result.
+
+        Returns a single global_M mapping every original RV to its final form.
+        """
+        global_M = self.run_all_vmaps(RVs)
+
+        while True:
+            # --- collect frontier: vmap nodes produced in the last pass ----
+            # These are the base nodes (after stripping any Index wrapper) that
+            # appear in global_M values but are not yet keys in global_M,
+            # meaning they are freshly created and haven't been examined yet.
+            frontier = set()
+            for replacement in global_M.values():
+                node = replacement
+                while node.op.name == "Index":
+                    node = node.parents[0]
+                if node not in global_M:
+                    frontier.add(node)
+
+            if not frontier:
+                break
+
+            # --- try to vmap the frontier nodes amongst themselves -----------
+            M_next = self.run_all_vmaps(list(frontier))
+
+            # Convergence: nothing in the frontier got batched
+            if not any(M_next.get(rv, rv) is not rv for rv in frontier):
+                # Absorb so future frontier scans don't re-examine these nodes
+                global_M.update(M_next)
+                break
+
+            # --- compose: rewrite every value in global_M through M_next ----
+            # substitute_parents recurses into Index chains, so
+            # Index(vmap1, i) becomes Index(M_next[vmap1], i) automatically.
+            for orig in list(global_M.keys()):
+                global_M[orig] = self.substitute_parents(global_M[orig], M_next)
+
+            # Absorb M_next so future iterations can trace through these nodes
+            global_M.update(M_next)
+
+        return global_M
 
     def substitute_parents(self, rv, M):
         """
@@ -352,9 +480,6 @@ class VmapEngine:
             # We want M[original_rv] -> final_rv.
             for sub_rv, orig_rv in sub_to_orig.items():
                 M[orig_rv] = group_M.get(sub_rv, sub_rv)
-        
-        for rv in RVs:
-            if rv in M:
-                print(f"{rv} -> {M[rv]}")
+            
 
         return M

@@ -17,7 +17,10 @@ def test_full_grid():
         for r in range(3) for c in range(3)
     ]
     adds = [RV(Add(), e, e) for e in elems]
-    engine.run_vmap([a] + elems + adds)
+    M = engine.run_to_fixpoint([a] + elems + adds)
+    # for rv in [a] + elems + adds:
+    #     if(rv in M):
+    #         print(f"{rv}: in vmap with in_axes={M[rv]}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 4: Two arrays, matching index pattern
@@ -32,7 +35,7 @@ def test_two_arrays_paired():
     ea = [RV(Index(), a, RV(Constant(i))) for i in range(5)]
     eb = [RV(Index(), b, RV(Constant(i))) for i in range(5)]
     adds = [RV(Add(), ea[i], eb[i]) for i in range(5)]
-    engine.run_vmap([a, b] + ea + eb + adds)
+    engine.run_to_fixpoint([a, b] + ea + eb + adds)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 5: Two arrays, one fixed / one swept
@@ -47,7 +50,7 @@ def test_broadcast_second_arg():
 
     ea   = [RV(Index(), a, RV(Constant(i))) for i in range(5)]
     adds = [RV(Add(), ea[i], b0) for i in range(5)]
-    engine.run_vmap([a, b, b0] + ea + adds)
+    engine.run_to_fixpoint([a, b, b0] + ea + adds)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 6: Mixed ops on the same elements
@@ -60,7 +63,7 @@ def test_mixed_ops_same_elems():
     ea   = [RV(Index(), a, RV(Constant(i))) for i in range(5)]
     adds = [RV(Add(), e, e) for e in ea]
     muls = [RV(Mul(), e, e) for e in ea]
-    engine.run_vmap([a] + ea + adds + muls)
+    engine.run_to_fixpoint([a] + ea + adds + muls)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 8: Large 1-D sweep — stress test greedy set cover
@@ -71,7 +74,7 @@ def test_large_sweep():
     a    = RV(Constant(list(range(N))))
     ea   = [RV(Index(), a, RV(Constant(i))) for i in range(N)]
     adds = [RV(Add(), e, e) for e in ea]
-    engine.run_vmap([a] + ea + adds)
+    engine.run_to_fixpoint([a] + ea + adds)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 9: Normal distribution — mu swept, sigma fixed
@@ -85,7 +88,7 @@ def test_normal_sweep_mu():
 
     emu   = [RV(Index(), mus, RV(Constant(i))) for i in range(5)]
     norms = [RV(Normal(), e, sigma) for e in emu]
-    engine.run_vmap([mus, sigma] + emu + norms)
+    engine.run_to_fixpoint([mus, sigma] + emu + norms)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 10: Normal distribution — both mu and sigma swept together
@@ -100,7 +103,7 @@ def test_normal_sweep_both():
     emu    = [RV(Index(), mus,    RV(Constant(i))) for i in range(4)]
     esigma = [RV(Index(), sigmas, RV(Constant(i))) for i in range(4)]
     norms  = [RV(Normal(), emu[i], esigma[i]) for i in range(4)]
-    engine.run_vmap([mus, sigmas] + emu + esigma + norms)
+    engine.run_to_fixpoint([mus, sigmas] + emu + esigma + norms)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 11: Beta distribution — sweep alpha, fix beta
@@ -114,7 +117,7 @@ def test_beta_sweep_alpha():
 
     ealpha = [RV(Index(), alphas, RV(Constant(i))) for i in range(4)]
     betas  = [RV(Beta(), e, beta_val) for e in ealpha]
-    engine.run_vmap([alphas, beta_val] + ealpha + betas)
+    engine.run_to_fixpoint([alphas, beta_val] + ealpha + betas)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 12: Gamma distribution — sweep both shape (alpha) and rate (beta)
@@ -129,7 +132,7 @@ def test_gamma_sweep_both():
     ealpha = [RV(Index(), alphas, RV(Constant(i))) for i in range(4)]
     ebeta  = [RV(Index(), betas,  RV(Constant(i))) for i in range(4)]
     gammas = [RV(Gamma(), ealpha[i], ebeta[i]) for i in range(4)]
-    engine.run_vmap([alphas, betas] + ealpha + ebeta + gammas)
+    engine.run_to_fixpoint([alphas, betas] + ealpha + ebeta + gammas)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 13: Exponential — sweep rate parameter
@@ -142,7 +145,7 @@ def test_exponential_sweep():
 
     erate = [RV(Index(), rates, RV(Constant(i))) for i in range(5)]
     exps  = [RV(Exponential(), e) for e in erate]
-    engine.run_vmap([rates] + erate + exps)
+    engine.run_to_fixpoint([rates] + erate + exps)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 14: Poisson — sweep lambda
@@ -155,7 +158,7 @@ def test_poisson_sweep():
 
     elam    = [RV(Index(), lambdas, RV(Constant(i))) for i in range(4)]
     poissons = [RV(Poisson(), e) for e in elam]
-    engine.run_vmap([lambdas] + elam + poissons)
+    engine.run_to_fixpoint([lambdas] + elam + poissons)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 15: Bernoulli — sweep probability
@@ -168,7 +171,7 @@ def test_bernoulli_sweep():
 
     ep    = [RV(Index(), probs, RV(Constant(i))) for i in range(5)]
     berns = [RV(Bernoulli(), e) for e in ep]
-    engine.run_vmap([probs] + ep + berns)
+    engine.run_to_fixpoint([probs] + ep + berns)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 16: Unary ops — Exp, Log, Sin swept over same array
@@ -183,7 +186,7 @@ def test_unary_ops_same_array():
     exps = [RV(Exp(), e) for e in ea]
     logs = [RV(Log(), e) for e in ea]
     sins = [RV(Sin(), e) for e in ea]
-    engine.run_vmap([a] + ea + exps + logs + sins)
+    engine.run_to_fixpoint([a] + ea + exps + logs + sins)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 17: StudentT — sweep all three params (nu, mu, sigma)
@@ -200,7 +203,7 @@ def test_studentt_sweep_all():
     emu    = [RV(Index(), mus,    RV(Constant(i))) for i in range(4)]
     esigma = [RV(Index(), sigmas, RV(Constant(i))) for i in range(4)]
     ts     = [RV(StudentT(), enu[i], emu[i], esigma[i]) for i in range(4)]
-    engine.run_vmap([nus, mus, sigmas] + enu + emu + esigma + ts)
+    engine.run_to_fixpoint([nus, mus, sigmas] + enu + emu + esigma + ts)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 18: Mixed distribution ops on the same swept mu
@@ -215,7 +218,7 @@ def test_mixed_dists_same_parent():
     emu    = [RV(Index(), mus, RV(Constant(i))) for i in range(4)]
     norms  = [RV(Normal(), e, scale) for e in emu]
     cauchs = [RV(Cauchy(),  e, scale) for e in emu]
-    engine.run_vmap([mus, scale] + emu + norms + cauchs)
+    engine.run_to_fixpoint([mus, scale] + emu + norms + cauchs)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 19: Arithmetic diversity — Sub, Div, Pow on same swept pair
@@ -231,7 +234,7 @@ def test_arithmetic_diversity():
     subs = [RV(Sub(), ea[i], eb[i]) for i in range(4)]
     divs = [RV(Div(), ea[i], eb[i]) for i in range(4)]
     pows = [RV(Pow(), ea[i], eb[i]) for i in range(4)]
-    engine.run_vmap([a, b] + ea + eb + subs + divs + pows)
+    engine.run_to_fixpoint([a, b] + ea + eb + subs + divs + pows)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 20: Chained unary — Exp then Log cancel; Sin then Cos independent
@@ -247,7 +250,7 @@ def test_chained_unary():
     logs = [RV(Log(), ex) for ex in exps]    # layer 2: parent is Exp RV, not Index
     sins = [RV(Sin(), e)  for e in ea]
     coss = [RV(Cos(), s)  for s in sins]
-    engine.run_all_vmaps([a] + ea + exps + logs + sins + coss)
+    engine.run_to_fixpoint([a] + ea + exps + logs + sins + coss)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 21: Normal with Exp-transformed sigma
@@ -265,27 +268,27 @@ def test_normal_with_transformed_params():
     # Transform sigma through Exp (non-Index parents for Normal)
     tsigma = [RV(Exp(), e) for e in esigma]
     norms  = [RV(Normal(), emu[i], tsigma[i]) for i in range(4)]
-    engine.run_all_vmap([raw_mu, raw_sigma] + emu + esigma + tsigma + norms)
+    engine.run_to_fixpoint([raw_mu, raw_sigma] + emu + esigma + tsigma + norms)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Run all tests
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # test_full_grid()
-    # test_two_arrays_paired()
-    # test_broadcast_second_arg()
-    # test_mixed_ops_same_elems()
-    # test_large_sweep()
-    # test_normal_sweep_mu()
-    # test_normal_sweep_both()
-    # test_beta_sweep_alpha()
-    # test_gamma_sweep_both()
-    # test_exponential_sweep()
-    # test_poisson_sweep()
-    # test_bernoulli_sweep()
-    # test_unary_ops_same_array()
-    # test_studentt_sweep_all()
-    # test_mixed_dists_same_parent()
-    # test_arithmetic_diversity()
+    test_full_grid()
+    test_two_arrays_paired()
+    test_broadcast_second_arg()
+    test_mixed_ops_same_elems()
+    test_large_sweep()
+    test_normal_sweep_mu()
+    test_normal_sweep_both()
+    test_beta_sweep_alpha()
+    test_gamma_sweep_both()
+    test_exponential_sweep()
+    test_poisson_sweep()
+    test_bernoulli_sweep()
+    test_unary_ops_same_array()
+    test_studentt_sweep_all()
+    test_mixed_dists_same_parent()
+    test_arithmetic_diversity()
     test_chained_unary()
-    # test_normal_with_transformed_params()
+    test_normal_with_transformed_params()
