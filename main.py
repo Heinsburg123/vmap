@@ -19,12 +19,12 @@ def test_full_grid():
     adds = [RV(Add(), e, e) for e in elems]
     M = engine.run_to_fixpoint([a] + elems + adds)
 
-    raw    = sample(adds)
-    mapped = sample([M[add] for add in adds])
+    raw    = sample(adds, niter = 1)
+    mapped = sample([M[add] for add in adds], niter=1)
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r,m), \
+            f"Mismatch: raw={r}, mapped={m}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 4: Two arrays, matching index pattern
@@ -40,12 +40,12 @@ def test_two_arrays_paired():
     adds = [RV(Add(), ea[i], eb[i]) for i in range(5)]
     M    = engine.run_to_fixpoint([a, b] + ea + eb + adds)
 
-    raw     = sample(adds)
-    mapped  = sample([M[add] for add in adds])
+    raw     = sample(adds, niter=1)
+    mapped  = sample([M[add] for add in adds], niter=1)
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Mismatch: raw={r}, mapped={m}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 5: Two arrays, one fixed / one swept
@@ -61,12 +61,12 @@ def test_broadcast_second_arg():
     adds = [RV(Add(), ea[i], b0) for i in range(5)]
     M    = engine.run_to_fixpoint([a, b, b0] + ea + adds)
 
-    raw    = sample(adds)
-    mapped = sample([M[add] for add in adds])
+    raw    = sample(adds, niter=1)
+    mapped = sample([M[add] for add in adds], niter=1)
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Mismatch: raw={r}, mapped={m}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 6: Mixed ops on the same elements
@@ -81,17 +81,17 @@ def test_mixed_ops_same_elems():
     muls = [RV(Mul(), e, e) for e in ea]
     M    = engine.run_to_fixpoint([a] + ea + adds + muls)
 
-    raw_adds    = sample(adds)
-    mapped_adds = sample([M[add] for add in adds])
-    raw_muls    = sample(muls)
-    mapped_muls = sample([M[mul] for mul in muls])
+    raw_adds    = sample(adds, niter=1)
+    mapped_adds = sample([M[add] for add in adds], niter=1)
+    raw_muls    = sample(muls, niter=1)
+    mapped_muls = sample([M[mul] for mul in muls], niter=1)
 
     for r, m in zip(raw_adds, mapped_adds):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Add mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Add mismatch: raw={r}, mapped={m}"
     for r, m in zip(raw_muls, mapped_muls):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Mul mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Mul mismatch: raw={r}, mapped={m}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 8: Large 1-D sweep — stress test greedy set cover
@@ -104,12 +104,12 @@ def test_large_sweep():
     adds = [RV(Add(), e, e) for e in ea]
     M    = engine.run_to_fixpoint([a] + ea + adds)
 
-    raw    = sample(adds)
-    mapped = sample([M[add] for add in adds])
+    raw    = sample(adds, niter=1)
+    mapped = sample([M[add] for add in adds], niter=1)
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Mismatch: raw={r}, mapped={m}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 9: Normal distribution — mu swept, sigma fixed
@@ -127,9 +127,10 @@ def test_normal_sweep_mu():
 
     raw    = sample(norms)
     mapped = sample([M[n] for n in norms])
-
+    mean1 = np.mean(raw, axis=0)
+    mean2 = np.mean(mapped, axis=0)
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=0.5), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"Normal mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -150,7 +151,7 @@ def test_normal_sweep_both():
     mapped = sample([M[n] for n in norms])
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=0.5), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"Normal mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -170,7 +171,7 @@ def test_beta_sweep_alpha():
     mapped = sample([M[b] for b in betas])
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=0.5), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"Beta mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -191,7 +192,7 @@ def test_gamma_sweep_both():
     mapped = sample([M[g] for g in gammas])
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=0.5), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"Gamma mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -210,7 +211,7 @@ def test_exponential_sweep():
     mapped = sample([M[e] for e in exps])
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=0.5), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"Exponential mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -229,7 +230,7 @@ def test_poisson_sweep():
     mapped = sample([M[p] for p in poissons])
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1.0), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"Poisson mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,7 +249,7 @@ def test_bernoulli_sweep():
     mapped = sample([M[b] for b in berns])
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=0.2), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"Bernoulli mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -265,22 +266,22 @@ def test_unary_ops_same_array():
     sins = [RV(Sin(), e) for e in ea]
     M    = engine.run_to_fixpoint([a] + ea + exps + logs + sins)
 
-    raw_exps    = sample(exps)
-    mapped_exps = sample([M[e] for e in exps])
-    raw_logs    = sample(logs)
-    mapped_logs = sample([M[l] for l in logs])
-    raw_sins    = sample(sins)
-    mapped_sins = sample([M[s] for s in sins])
+    raw_exps    = sample(exps, niter=1)
+    mapped_exps = sample([M[e] for e in exps], niter=1)
+    raw_logs    = sample(logs, niter=1)
+    mapped_logs = sample([M[l] for l in logs], niter=1)
+    raw_sins    = sample(sins, niter=1)
+    mapped_sins = sample([M[s] for s in sins], niter=1)
 
     for r, m in zip(raw_exps, mapped_exps):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Exp mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Exp mismatch: raw={r}, mapped={m}"
     for r, m in zip(raw_logs, mapped_logs):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Log mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Log mismatch: raw={r}, mapped={m}"
     for r, m in zip(raw_sins, mapped_sins):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Sin mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Sin mismatch: raw={r}, mapped={m}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 17: StudentT — sweep all three params (nu, mu, sigma)
@@ -302,7 +303,7 @@ def test_studentt_sweep_all():
     mapped = sample([M[t] for t in ts])
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=0.5), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"StudentT mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -325,10 +326,10 @@ def test_mixed_dists_same_parent():
     mapped_cauchs = sample([M[c] for c in cauchs])
 
     for r, m in zip(raw_norms, mapped_norms):
-        assert np.isclose(np.mean(r), np.mean(m), atol=0.5), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"Normal mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
     for r, m in zip(raw_cauchs, mapped_cauchs):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1.0), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"Cauchy mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -347,22 +348,22 @@ def test_arithmetic_diversity():
     pows = [RV(Pow(), ea[i], eb[i]) for i in range(4)]
     M    = engine.run_to_fixpoint([a, b] + ea + eb + subs + divs + pows)
 
-    raw_subs    = sample(subs)
-    mapped_subs = sample([M[s] for s in subs])
-    raw_divs    = sample(divs)
-    mapped_divs = sample([M[d] for d in divs])
-    raw_pows    = sample(pows)
-    mapped_pows = sample([M[p] for p in pows])
+    raw_subs    = sample(subs, niter=1)
+    mapped_subs = sample([M[s] for s in subs], niter=1)
+    raw_divs    = sample(divs, niter=1)
+    mapped_divs = sample([M[d] for d in divs], niter=1)
+    raw_pows    = sample(pows, niter=1)
+    mapped_pows = sample([M[p] for p in pows], niter=1)
 
     for r, m in zip(raw_subs, mapped_subs):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Sub mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Sub mismatch: raw={r}, mapped={m}"
     for r, m in zip(raw_divs, mapped_divs):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Div mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Div mismatch: raw={r}, mapped={m}"
     for r, m in zip(raw_pows, mapped_pows):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Pow mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Pow mismatch: raw={r}, mapped={m}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 20: Chained unary — Exp then Log cancel; Sin then Cos independent
@@ -379,17 +380,17 @@ def test_chained_unary():
     stuff = [RV(Add(), e, l) for (e, l) in zip(exps, logs, strict=True)]
     M = engine.run_to_fixpoint([a] + ea + exps + logs + sins + coss + stuff)
 
-    raw_stuff    = sample(stuff)
-    mapped_stuff = sample([M[s] for s in stuff])
-    raw_coss     = sample(coss)
-    mapped_coss  = sample([M[c] for c in coss])
+    raw_stuff    = sample(stuff, niter=1)
+    mapped_stuff = sample([M[s] for s in stuff], niter=1)
+    raw_coss     = sample(coss, niter=1)
+    mapped_coss  = sample([M[c] for c in coss], niter=1)
 
     for r, m in zip(raw_stuff, mapped_stuff):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Add(Exp,Log) mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Add(Exp,Log) mismatch: raw={r}, mapped={m}"
     for r, m in zip(raw_coss, mapped_coss):
-        assert np.isclose(np.mean(r), np.mean(m), atol=1e-5), \
-            f"Cos mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
+        assert np.isclose(r, m), \
+            f"Cos mismatch: raw={r}, mapped={m}"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TEST 21: Normal with Exp-transformed sigma
@@ -410,7 +411,7 @@ def test_normal_with_transformed_params():
     mapped = sample([M[n] for n in norms])
 
     for r, m in zip(raw, mapped):
-        assert np.isclose(np.mean(r), np.mean(m), atol=0.5), \
+        assert np.isclose(np.mean(r), np.mean(m)), \
             f"Normal(transformed) mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
 
 # ─────────────────────────────────────────────────────────────────────────────
