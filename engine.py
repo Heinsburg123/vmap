@@ -202,6 +202,33 @@ class VmapEngine:
         hash_map = {}
         index_rv = {}
         M = {}  # Maps original RV -> replacement RV
+
+        # Optimization 2: reuse Constant RVs that share the same value
+        const_cache = {}
+        def get_const_rv(arr):
+            """Return a cached Constant RV for arr, creating one only if needed."""
+            a = np.asarray(arr)
+            cache_key = (a.shape, a.dtype.str, a.tobytes())
+            if cache_key not in const_cache:
+                const_cache[cache_key] = RV(Constant(arr))
+            return const_cache[cache_key]
+
+        # Optimization 1: detect when an index list covers all elements of a
+        # parent RV so that the Index wrapper can be dropped entirely.
+        def indices_fill_parent(c_rvs, parent):
+            """Return True if every index in c_rvs spans the full corresponding
+            dimension of parent, i.e. the Index is a no-op identity."""
+            shape = parent.shape
+            if len(c_rvs) != len(shape):
+                return False
+            for idx_rv, dim_size in zip(c_rvs, shape):
+                val = np.asarray(idx_rv.op.value)
+                if val.ndim != 1 or len(val) != dim_size:
+                    return False
+                if not np.array_equal(val, np.arange(dim_size)):
+                    return False
+            return True
+
         # Passthroughs: Constants and Index RVs map to themselves
         for rv in RVs:
             if rv.op.name == "Constant" or rv.op.name == "Index":
@@ -325,7 +352,7 @@ class VmapEngine:
                             arr = remain[i][idd]
                             idd+=1
                         #This is the RV that we will use as an argument for the new vmap
-                        new_rv = RV(Constant(arr))
+                        new_rv = get_const_rv(arr)  # optimization 2: reuse if same value
                         c_rv[-1].append(new_rv)
                 # print(key2)
                 new_p = []
@@ -337,11 +364,16 @@ class VmapEngine:
                     if(isinstance(c_rv[i], str)):
                         new_p.append(key[i+1])
                     else:
-                        args.append(Index())
-                        args.append(key[i+1])
-                        for var in c_rv[i]:
-                            args.append(var)
-                        new_p.append(RV(*args))
+                        parent = key[i+1]
+                        # Optimization 1: if every index spans its full dimension the
+                        # Index is a no-op — just use the parent RV directly.
+                        if indices_fill_parent(c_rv[i], parent):
+                            new_p.append(parent)
+                        else:
+                            args = [Index(), parent]
+                            for var in c_rv[i]:
+                                args.append(var)
+                            new_p.append(RV(*args))
                     axes[i] = None if axes[i] == "None" else axes[i]
                     if(new_p[i].ndim == 1):
                         axes[i] = 0 if axes[i] != None else None
@@ -361,9 +393,9 @@ class VmapEngine:
                 # A scalar index (shape ()) contributes nothing; a 1-D range of length d
                 # contributes (d,). So index(vmap, i, range(d1),...) -> shape (d1,...). 
                 for i, original_rv in enumerate(final_bucket[key2]):
-                    index_args = [Index(), vmap, RV(Constant(i))]
+                    index_args = [Index(), vmap, get_const_rv(i)]  # optimization 2
                     for dim_size in vmap.shape[1:]:  # no-op for 1-D vmaps
-                        index_args.append(RV(Constant(list(range(dim_size)))))
+                        index_args.append(get_const_rv(list(range(dim_size))))  # optimization 2
                     M[original_rv] = RV(*index_args)
 
         return M
