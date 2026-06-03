@@ -20,7 +20,7 @@ def test_full_grid():
     M = engine.run_to_fixpoint([a] + elems + adds)
 
     raw    = sample(adds, niter = 1)
-    mapped = sample([M[add] for add in adds], niter=1, debug = True)
+    mapped = sample([M[add] for add in adds], niter=1)
 
     # for r, m in zip(raw, mapped):
     #     assert np.isclose(r,m), \

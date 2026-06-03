@@ -3,6 +3,7 @@ import numpy as np
 import heapq
 from pangolin.ir import * 
 from collections import deque
+import jax.numpy as jnp
 
 class VmapEngine:
     adj = {}
@@ -178,7 +179,7 @@ class VmapEngine:
             heap.append((-len(sets[key]), counter, key))
             counter += 1
         heapq.heapify(heap)
-        result = {}
+        result = {}         
         while uncovered and heap:
             # ---- lazy-deletion loop ----
             while heap:
@@ -377,7 +378,16 @@ class VmapEngine:
                     axes[i] = None if axes[i] == "None" else axes[i]
                     if(new_p[i].ndim == 1):
                         axes[i] = 0 if axes[i] != None else None
+                    if(axes[i] is not None):
+                        culmulative_arr = c_rv[i][0].op.value if len(c_rv[i])== 0 else np.concatenate([rv.op.value for rv in c_rv[i]], axis=0)
+                        moved = jnp.moveaxis(culmulative_arr, axes[i], 0)
+                        if jnp.all(moved == moved[0]):
+                            axes[i] = None
+                            new_p.pop();
+                            new_p.append(RV(Index(), key[i+1], get_const_rv(moved[0])))
+                need_axis_size = all(el is None for el in axes)
                 if(need_axis_size):
+                    axis_size = len(final_bucket[key2])
                     op = VMap(key[0], in_axes = tuple(axes), axis_size = axis_size)
                 else:
                     op = VMap(key[0], in_axes = tuple(axes))
@@ -397,9 +407,46 @@ class VmapEngine:
                     for dim_size in vmap.shape[1:]:  # no-op for 1-D vmaps
                         index_args.append(get_const_rv(list(range(dim_size))))  # optimization 2
                     M[original_rv] = RV(*index_args)
-
         return M
 
+    def batch_constants(self, RVs):
+        max_dim = 0
+        M = {}
+        for rv in RVs:
+            if(rv.op.name == "Constant"):
+                max_dim = max(max_dim, rv.ndim)
+        for i in range(max_dim+1):
+            tmp = []
+            cc = []
+            for rv in RVs:
+                if(rv.op.name == "Constant" and rv.ndim == i):
+                    tmp.append(rv.op.value)
+                    cc.append(rv)
+            if(len(tmp) > 1):
+                tmp = np.array(tmp)
+                tmp_dir = {}
+                new_const = RV(Constant(tmp))
+                for i,rv in enumerate(cc):
+                    if(rv.op.value.tobytes() not in tmp_dir):
+                        tmp_dir[rv.op.value.tobytes()] = rv
+                        M[rv] = RV(Index(), new_const, RV(Constant(i)))
+                    else:
+                        M[rv] = M[tmp_dir[rv.op.value.tobytes()]]  
+
+        return M 
+
+    def collect_upstream(self, RVs):
+        seen = set()
+        queue = deque(RVs)
+        for rv in RVs:
+            seen.add(rv)
+        while queue:
+            rv = queue.popleft()
+            for p in rv.parents:
+                if p not in seen:
+                    seen.add(p)
+                    queue.append(p)
+        return list(seen)
     def run_to_fixpoint(self, RVs):
         """
         Repeatedly apply run_all_vmaps until no new vmap opportunities remain.
@@ -416,6 +463,7 @@ class VmapEngine:
 
         Returns a single global_M mapping every original RV to its final form.
         """
+        RVs = self.collect_upstream(RVs)
         global_M = self.run_all_vmaps(RVs)
 
         while True:
@@ -491,8 +539,8 @@ class VmapEngine:
         Returns M, a dict mapping every original RV to its final replacement.
         """
         order_bucket = self.level_ranking(RVs)
-        M = {}  # original RV -> final replacement RV
-
+        M = self.batch_constants(RVs)  # original RV -> final replacement RV
+        
         for group in order_bucket:
             # --- Step 1: rebuild each RV with substituted parents ---
             # Track substituted RV -> original RV so we can write back into M
