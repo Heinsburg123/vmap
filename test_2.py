@@ -13,7 +13,7 @@ jnp.set_printoptions(threshold=sys.maxsize, linewidth=1000)
 
 def test_merge_constants():
     xs = [pi.constant(2*i) for i in range(5)]
-    M = engine.run_to_fixpoint(xs)
+    M = engine.run_all_vmaps(xs)
     output = RV(Constant([2*i for i in range(5)]))
     print_upstream([M[rv] for rv in xs])
     for i,x in enumerate(xs):
@@ -24,7 +24,7 @@ def test_merge_constants():
 def test_merge_constants_downstream():
     xs = [pi.constant(2*i) for i in range(5)]
     ys = [x + 1 for x in xs]
-    M = engine.run_to_fixpoint(ys)
+    M = engine.run_all_vmaps(ys)
     # print_upstream([M[y] for y in ys])
     arr = [2*i for i in range(5)]
     arr += [1 for _ in range(5)]
@@ -43,7 +43,7 @@ def test_autobatch_normal_shared_params():
 
     xs = [pi.normal(m, s) for _ in range(5)]
 
-    M = engine.run_to_fixpoint(xs)
+    M = engine.run_all_vmaps(xs)
     print_upstream([M[x] for x in xs])
     m_new = RV(Index(), RV(Constant([0,1])), RV(Constant(0)))
     s_new = RV(Index(), RV(Constant([0,1])), RV(Constant(1)))
@@ -57,12 +57,12 @@ def test_autobatch_normal_shared_params():
 def test_autobatch_normal_halfshared_params():
     m = pi.constant(0)
     xs = [pi.normal(m, 1) for _ in range (5)]
-    M = engine.run_to_fixpoint(xs)
+    M = engine.run_all_vmaps(xs)
     print_upstream([M[x] for x in xs])
 
 def test_autobatch_normal_different_params():
     xs = [pi.normal(0,1) for _ in range(5)]
-    M = engine.run_to_fixpoint(xs)
+    M = engine.run_all_vmaps(xs)
     print_upstream([M[x] for x in xs])
     num_new = RV(Constant([0,1,0,1,0,1,0,1,0,1]))
     m_new = RV(Index(), num_new, RV(Constant([0,2,4,6,8])))
@@ -78,7 +78,7 @@ def test_autobatch_normal_different_params():
 def test_switch_order():
     xs = [pi.constant(i) for i in range(5)]
     ys = [x + 3 for x in [xs[3], xs[0], xs[4], xs[1], xs[2]]]
-    M = engine.run_to_fixpoint(xs + ys)
+    M = engine.run_all_vmaps(xs + ys)
     print_upstream([M[y] for y in ys])
     num_new = [i for i in range(5)]
     num_new += [3 for _ in range(5)]
@@ -106,7 +106,7 @@ def test_switch_order_2():
     expected_ys = {zs[0]:1, zs[1]:0, zs[2]:2, zs[3]:4, zs[4]:3,
                    ws[0]:4, ws[1]:0, ws[2]:2, ws[3]:1, ws[4]:3}
 
-    M = engine.run_to_fixpoint(zs + ws)
+    M = engine.run_all_vmaps(zs + ws)
     for rv in zs + ws:
         assert M[rv].op == Index()
         vmap = M[rv].parents[0]
@@ -123,7 +123,7 @@ def test_same_parent():
     x = [pi.normal(ai,bi) for ai, bi in zip([a[0], a[1], a[2], a[3], a[4]], [a[3], a[4], a[2], a[1], a[1]])]
     expected_a = {x[0]:0, x[1]:1, x[2]:2, x[3]:3, x[4]:4}
     expected_b = {x[0]:3, x[1]:4, x[2]:2, x[3]:1, x[4]:1}
-    M = engine.run_to_fixpoint(x)
+    M = engine.run_all_vmaps(x)
     print_upstream([M[rv] for rv in x])
     for rv in x:
         assert M[rv].op == Index()
@@ -140,7 +140,7 @@ def test_add_1d_vector():
     b = pi.constant([2,3,4])
     c = pi.constant([3,4,5])
     e = [a+b, b+c, a+c]
-    M = engine.run_to_fixpoint(e)
+    M = engine.run_all_vmaps(e)
     print_upstream([M[rv] for rv in e])
     expected_a = {e[0]:0, e[1]:1, e[2]:0}
     expected_b = {e[0]:1, e[1]:2, e[2]:2}
@@ -160,7 +160,7 @@ def test_matmul_1d_vector():
     b = pi.constant([2,3,4])
     c = pi.constant([3,4,5])
     e = [a@b, b@c, a@c]
-    M = engine.run_to_fixpoint(e)
+    M = engine.run_all_vmaps(e)
     print_upstream([M[rv] for rv in e])
     expected_a = {e[0]:0, e[1]:1, e[2]:0}
     expected_b = {e[0]:1, e[1]:2, e[2]:2}
@@ -179,7 +179,7 @@ def test_add_2d_vector():
     b = pi.constant([[2,3,4], [5,6,7]])
     c = pi.constant([[3,4,5], [6,7,8]])
     e = [a+b, b+c, a+c]
-    M = engine.run_to_fixpoint(e)
+    M = engine.run_all_vmaps(e)
     print_upstream([M[rv] for rv in e])
     expected_a = {e[0]:0, e[1]:1, e[2]:0}
     expected_b = {e[0]:1, e[1]:2, e[2]:2}
@@ -198,7 +198,7 @@ def test_matmul_2d_vector():
     b = pi.constant([[2,3,4], [5,6,7], [8,9,10]])
     c = pi.constant([[3,4,5], [6,7,8], [9,10,11]])
     e = [a@b, b@c, a@c]
-    M = engine.run_to_fixpoint(e)
+    M = engine.run_all_vmaps(e)
     print_upstream([M[rv] for rv in e])
     expected_a = {e[0]:0, e[1]:1, e[2]:0}
     expected_b = {e[0]:1, e[1]:2, e[2]:2}
@@ -220,7 +220,7 @@ def test_inner_product():
     e = pi.constant(5)
     f = pi.constant(6)
     g = a*b + c*d + e*f
-    M = engine.run_to_fixpoint([g])
+    M = engine.run_all_vmaps([g])
     print_upstream([g])
     rv = M[g]
     assert rv.op == Add()
@@ -244,7 +244,7 @@ def test_matrix_vector_product():
     e1 = c[0]+c[1]
     d = [pi.constant(ai)*bi for ai, bi in zip(a[1], b)]
     e2 = d[0]+d[1]
-    M = engine.run_to_fixpoint([e1, e2])
+    M = engine.run_all_vmaps([e1, e2])
     print_upstream([M[e1], M[e2]])
     rv1 = M[e1]
     assert rv1.op == Index()
@@ -273,7 +273,7 @@ def test_matrix_vector_product_2():
     d = [ai*bi for ai, bi in zip(a[1], b)]
     e2 = d[0]+d[1]
     
-    M = engine.run_to_fixpoint([e1, e2])    
+    M = engine.run_all_vmaps([e1, e2])    
     print_upstream([M[e1], M[e2]])
     rv1 = M[e1]
     assert rv1.op == Index()
@@ -306,7 +306,7 @@ def test_matrix_matrix_product():
     C11 = A[1][0]*B[0][1] + A[1][1]*B[1][1]
 
     C_flat = [C00, C01, C10, C11]
-    M = engine.run_to_fixpoint(C_flat)
+    M = engine.run_all_vmaps(C_flat)
     print_upstream([M[c] for c in C_flat])
     
     for c in C_flat:
@@ -335,7 +335,7 @@ def test_matrix_matrix_product_2():
     c11 = A[1,0]*B[0,1] + A[1,1]*B[1,1]
 
     C_flat = [c00, c01, c10, c11]
-    M = engine.run_to_fixpoint(C_flat)
+    M = engine.run_all_vmaps(C_flat)
     print_upstream([M[c] for c in C_flat])
 
     for c in C_flat:
@@ -371,7 +371,7 @@ def test_matrix_matrix_product_3():
     c11 = A[1,0]*b_col1[0] + A[1,1]*b_col1[1]
 
     C_flat = [c00, c10, c01, c11]
-    M = engine.run_to_fixpoint(C_flat)
+    M = engine.run_all_vmaps(C_flat)
     print_upstream([M[c] for c in C_flat])
     for c in C_flat:
         rv = M[c]
@@ -395,7 +395,7 @@ def test_matrix_matrix_product_3():
 def test_weird():
     x = pi.constant([[0,1,2], [3,4,5]])
     ys = [x[0,0:2]*7, x[1,0:2]*8]
-    M = engine.run_to_fixpoint(ys)
+    M = engine.run_all_vmaps(ys)
     print_upstream([M[y] for y in ys])
     for y in ys:
         rv = M[y]
@@ -407,4 +407,3 @@ def test_weird():
         
     assert rv_equal(M[ys[0]].parents[0], M[ys[1]].parents[0])
 
-test_matrix_vector_product_2()

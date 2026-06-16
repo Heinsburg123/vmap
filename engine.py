@@ -112,11 +112,11 @@ class VmapEngine:
         merged, j = [], 0
         for entry in inner_lst:
             arr = np.asarray(entry)
-            if arr.ndim == 1 and np.array_equal(arr, np.arange(len(arr))) and j < len(own):
-                merged.append(own[j]); j += 1
-            else:
+            if arr.ndim == 0:
                 merged.append(entry)
-        return merged + own[j:]
+            else:
+                merged.append(arr[own[j]]); j += 1
+        return merged
     
     def compute_hash(self, rv):
         base_parents = [self.get_resolved_parent(p) for p in rv.parents]
@@ -263,7 +263,7 @@ class VmapEngine:
                     )
                 final_bucket[key2].sort(key=_sort_key)
 
-                need_axis_size = all(el == "None" for el in axes)
+                need_axis_size = all(el == "None" for  el in axes)
                 if(need_axis_size):
                     axis_size = len(final_bucket[key2])
                 def _deserialize_index_list(blob):
@@ -339,7 +339,7 @@ class VmapEngine:
                 print(f"Created vmap: {vmap}")
                 for i, original_rv in enumerate(final_bucket[key2]):
                     index_args = [Index(), vmap, get_const_rv(i)]  # optimization 2
-                    for dim_size in vmap.shape[1:]:  # no-op for 1-D vmaps
+                    for dim_size in vmap.shape[1:]: 
                         index_args.append(get_const_rv(list(range(dim_size))))  # optimization 2
                     M[original_rv] = RV(*index_args)
         return M
@@ -367,33 +367,6 @@ class VmapEngine:
                     
         return M
 
-    def run_to_fixpoint(self, RVs):
-        RVs = upstream_nodes(RVs)
-        global_M = self.run_all_vmaps(RVs)
-
-        while True:
-            frontier = set()
-            for replacement in global_M.values():
-                node = replacement
-                while node.op.name == "Index":
-                    node = node.parents[0]
-                if node not in global_M:
-                    frontier.add(node)
-
-            if not frontier:
-                break
-
-            M_next = self.run_all_vmaps(list(frontier))
-
-            if not any(M_next.get(rv, rv) is not rv for rv in frontier):
-                global_M.update(M_next)
-                break
-            for orig in list(global_M.keys()):
-                global_M[orig] = self.substitute_parents(global_M[orig], M_next)
-            global_M.update(M_next)
-
-        return global_M
-
     def substitute_parents(self, rv, M):
         if rv in M:
             return M[rv]
@@ -409,10 +382,11 @@ class VmapEngine:
         return RV(rv.op, *new_parents)
 
     def run_all_vmaps(self, RVs):
+        RVs = upstream_nodes(RVs)
         order_bucket = self.level_ranking(RVs)
-        M = self.batch_constants(RVs)  
-        for group in order_bucket:
+        M = self.batch_constants(RVs)
 
+        for group in order_bucket:
             sub_to_orig = {}
             substituted_group = []
 
@@ -423,7 +397,30 @@ class VmapEngine:
 
             group_M = self.run_vmap(substituted_group)
 
+            while True:
+                frontier = set()
+                for replacement in group_M.values():
+                    node = self.get_resolved_parent(replacement)
+                    if node not in group_M:
+                        frontier.add(node)
+
+                if not frontier:
+                    break
+
+                M_next = self.run_vmap(list(frontier))
+                made_progress = any(M_next.get(rv, rv) is not rv for rv in frontier)
+
+                for orig in list(group_M.keys()):
+                    group_M[orig] = self.substitute_parents(group_M[orig], M_next)
+                group_M.update(M_next)
+
+                if not made_progress:
+                    break
+
             for sub_rv, orig_rv in sub_to_orig.items():
                 M[orig_rv] = group_M.get(sub_rv, sub_rv)
+            for node, replacement in group_M.items():
+                if node not in sub_to_orig:
+                    M[node] = replacement
 
         return M

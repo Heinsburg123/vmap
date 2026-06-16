@@ -1,278 +1,130 @@
 # VmapEngine — Detailed Pseudocode
-# Covers the non-obvious mechanics left implicit in the high-level file.
+# Covers non-obvious mechanics left implicit in the high-level file.
 
 ---
 
-## group_index(rv) — Nested Index Merging
+## deep_hash — Axis Enumeration and Serialization
 
-The goal is to flatten a chain of nested Index ops into a single flat list of
-constant index arrays, one per dimension of the underlying base array.
-
-    if rv.op != "Index":
-        return "NotIndex"
-
-    own = []
-    for each index argument p of rv (skipping the first parent, which is the array):
-        c = get_constant(p)       # recursively resolve to a numpy scalar/array
-        if c == "Random":
-            return "NotIndex"     # non-constant index; can't batch
-        own.append(c)
-
-    if rv.parents[0].op != "Index":
-        return own                # base case: single level of indexing
-
-    # Recursive case: rv = outer_index[ inner_index[base] ]
-    inner_lst = group_index(rv.parents[0])
-    if inner_lst == "NotIndex":
-        return "NotIndex"
-
-    # Merge own into inner_lst.
-    # inner_lst describes how the intermediate array was sliced from base.
-    # own describes how rv further slices the intermediate array.
-    # A "full-slice placeholder" in inner_lst is a 1-D array equal to arange(n);
-    # it means that dimension was left whole, so the outer index can refine it.
-    # A non-arange entry in inner_lst is a concrete selection; it is kept as-is.
-
-    merged = []
-    j = 0                          # pointer into own[]
-    for entry in inner_lst:
-        arr = np.asarray(entry)
-        is_full_slice = (arr.ndim == 1 and arr == arange(len(arr)))
-        if is_full_slice and j < len(own):
-            merged.append(own[j])  # replace placeholder with outer's refinement
-            j += 1
+    for each parent i:
+        if index_lst[i] == "NotIndex":
+            possible_axes[i] ← ["None"]
         else:
-            merged.append(entry)   # keep inner's concrete index unchanged
-    merged += own[j:]              # any remaining own entries (extra dims)
+            # only 0-d (scalar) entries can be a batch dimension
+            possible_axes[i] ← [j for j,v in enumerate(index_lst[i]) if v.ndim==0]
+                                + ["None"]
 
-    return merged
-
-    # Example:
-    #   base shape = [4, 5]
-    #   inner: rv1 = base[arange(4), 2]   → inner_lst = [arange(4), 2]
-    #   outer: rv2 = rv1[3]               → own = [3]
-    #   merge: arange(4) is a full slice → replace with own[0]=3; keep 2 as-is
-    #   result: [3, 2]   (i.e. rv2 == base[3, 2])
-
----
-
-## get_constant(rv) — Recursive Constant Resolution
-
-    if rv.op == "Constant":
-        return rv.op.value
-
-    if rv.op.random == True:
-        return "Random"
-
-    # rv is a deterministic op applied to parents (e.g. an Index)
-    # collect all non-first-parent index arguments (in reverse, then reverse back)
-    index_args = []
-    for p in rv.parents[1:]:           # index arguments
-        c = get_constant(p)
-        if c == "Random": return "Random"
-        index_args.append(c)
-
-    base = get_resolved_parent(rv)     # strip all Index wrappers
-    if base.op.random: return "Random"
-
-    return base.op.value[tuple(index_args)]   # numpy fancy indexing
-
----
-
-## deep_hash(rv, index_lst) — Axis Enumeration and Serialization
-
-index_lst[i] is either:
-  - "NotIndex"  — parent i is not constant-indexed (treat as broadcast/shared)
-  - a list of numpy arrays, one per dimension of parent i
-
-Goal: for each possible choice of which dimension to batch over per parent,
-produce (1) the axes[] choice vector, (2) the "remaining" signature — a
-serialized form of the index arrays with the chosen axis's entry removed.
-
-    # Build candidate axes for each parent
-    possible_axes = []
-    for idd in index_lst:
-        if idd == "NotIndex":
-            possible_axes.append(["None"])          # can only be not-batched
-        else:
-            # only 0-d (scalar) index entries can be the batch dimension
-            candidates = [ j for j, val in enumerate(idd) if val.ndim == 0 ]
-            candidates.append("None")               # always include the no-batch option
-            possible_axes.append(candidates)
-
-    # Enumerate all combinations
-    all_axis_combos = cartesian_product(*possible_axes)
-    # e.g. if parent 0 has candidates [0, "None"] and parent 1 has ["None"]:
-    #   combos = [(0,"None"), ("None","None")]
-
-    # For each combo, compute the "remaining" signature
-    # The remaining for parent i = the index list with the chosen axis entry removed
-    # (or the full list serialized if axis is "None")
-    remaining_list = []
-    for axes in all_axis_combos:
-        remaining = []
-        for i, axis in enumerate(axes):
-            if axis == "None":
-                if index_lst[i] == "NotIndex":
-                    remaining.append("NotIndex")
-                else:
-                    remaining.append( serialize(index_lst[i]) )
+    for each combo in cartesian_product(*possible_axes):
+        for each parent i:
+            if combo[i] == "None":
+                remaining[i] ← serialize(index_lst[i])         # full list
             else:
-                # remove entry at position `axis` from the index list
-                remaining.append( serialize(index_lst[i][:axis] + index_lst[i][axis+1:]) )
-        remaining_list.append(remaining)
-
-    return all_axis_combos, remaining_list
+                remaining[i] ← serialize(index_lst[i] with entry combo[i] removed)
+        bucket_key ← tuple(combo) + tuple(remaining)
 
 ---
 
-## Serialization / Deserialization of Index Lists
+## Serialization / Deserialization
 
-Used to make numpy array lists hashable (for use as dict keys).
-
-    serialize(lst):
-        # lst is a list of numpy arrays (the index arrays for one parent,
-        # possibly with the batch dimension removed)
-        parts = []
-        for arr in lst:
-            # header: [ndim, dim0, dim1, ..., dim_{ndim-1}] as int64 bytes
-            header = int64_bytes([arr.ndim] + list(arr.shape))
-            parts.append(header + arr.data_bytes)
-        return b"|".join(parts)
+    serialize(lst of numpy arrays):
+        for each arr:
+            header ← int64_bytes([arr.ndim] + list(arr.shape))  # 1+ndim int64s
+            emit header + arr.tobytes()
+        join parts with b"|"
 
     deserialize(blob):
-        result = []
-        for part in blob.split(b"|"):
-            ndim  = int64_from_bytes(part[0:8])
-            shape = int64_array_from_bytes(part[8 : 8 + 8*ndim])
-            data  = int64_array_from_bytes(part[8 + 8*ndim :]).reshape(shape)
-            result.append(data)
-        return result
-
-    # Format per array:
-    #   bytes 0..7          : ndim (int64)
-    #   bytes 8..8+8*ndim-1 : shape (ndim int64s)
-    #   remaining bytes     : flattened int64 array data
-    # Arrays within one parent separated by b"|"
+        for each part in blob.split(b"|"):
+            ndim  ← int64 at bytes [0:8]
+            shape ← int64s at bytes [8 : 8+8*ndim]
+            data  ← int64s at bytes [8+8*ndim:] reshaped to shape
 
 ---
 
 ## run_greedy_set — Heap Key and Lazy Recomputation
 
-    # Heap entry: (-coverage_size, none_count, insertion_counter, bucket_key)
-    #
-    # Primary sort:   most RVs covered first (negate for min-heap)
-    # Secondary sort: most "None" entries in the axes half of the key
-    #                 (prefer no-batch groupings — they are cheaper and
-    #                  more general, and coverage size is equal)
-    # Tertiary sort:  insertion counter (FIFO tiebreak for determinism)
+    heap entry: (-coverage_size, -none_count_in_axes_half, insertion_counter, key)
+    # Primary:   most uncovered RVs covered
+    # Tiebreak:  most None axes (prefer no-batch / cheaper groupings)
+    # Tiebreak:  insertion order (determinism)
 
-    none_count(key):
-        axes_half = key[ : len(key)//2 ]
-        return -sum(1 for el in axes_half if el == "None")
-        # negative so that more Nones → smaller heap key → popped first
-
-    # Lazy deletion: when a key is popped, recompute its real coverage
-    # against the still-uncovered set.  If it has shrunk, re-push with
-    # updated size rather than processing immediately.
-    # This avoids rebuilding the heap after every selection.
-
-    pop (neg_size, nc, ctr, key):
-        real = |sets[key] ∩ uncovered|
-        if real == 0: discard, continue
-        if real < -neg_size:
-            push (-real, none_count(key), new_counter, key)   # stale; re-push
-            continue
-        # real == -neg_size: entry is fresh, use it
-        result[key] = sets[key] ∩ uncovered
-        uncovered -= result[key]
+    on pop: recompute real coverage against current uncovered set
+        if shrunken: re-push with updated size (lazy deletion)
+        if zero:     discard
+        if fresh:    accept, remove covered items from uncovered
 
 ---
 
-## _sort_key — Canonical Ordering of RVs Within a Vmap Group
+## _sort_key — Canonical VMap Ordering
 
-Before stacking a group of RVs into a vmap, we must agree on an order so that
-vmap output index 0 corresponds to a predictable RV.  The sort key is the
-tuple of scalar index values along each batched dimension.
+    Sort group so vmap output index 0,1,2,... maps to predictable RVs.
 
-    _sort_key(rv):
-        return tuple(
-            int( index_rv[rv][i][ axes[i] ] )      # scalar index at the batch dim
-            for i in range(len(axes))
-            if axes[i] != "None"
-        )
+    _sort_key(rv) ← tuple(
+        int(index_lst[rv][i][axes[i]])      # scalar index at the batch dim
+        for i where axes[i] != "None"
+    )
 
-    # Example:
-    #   axes = [0, "None"]  (batch over dim 0 of parent 0, parent 1 is shared)
-    #   rv_A has index_rv[rv_A][0] = [scalar(2), arange(5)]  → sort value = (2,)
-    #   rv_B has index_rv[rv_B][0] = [scalar(0), arange(5)]  → sort value = (0,)
-    #   rv_C has index_rv[rv_C][0] = [scalar(1), arange(5)]  → sort value = (1,)
-    #   sorted order: rv_B, rv_C, rv_A
-    #   → vmap[0] = rv_B, vmap[1] = rv_C, vmap[2] = rv_A
-    #   → each original rv maps to Index(vmap, its position in sorted order)
+    # e.g. axes=[0,"None"], RVs have scalar index 2,0,1 at dim 0 of parent 0
+    # sorted order: [rv_0, rv_1, rv_2]  (indices 0,1,2)
+    # → M[rv_0]=Index(vmap,0,...), M[rv_1]=Index(vmap,1,...), etc.
 
 ---
 
-## tensor_axes — Mapping Index-List Position to Tensor Axis
+## tensor_axes — Index-List Position to Tensor Axis
 
-After choosing which entry in an index list is the batch dimension (call it `a`),
-we need to know which axis of the *actual tensor* passed to VMap corresponds
-to position `a`.  This differs from `a` because each 1-D index array in the
-index list occupies exactly one tensor dimension, while scalars (0-D) do not.
+    After choosing batch dim a in parent i's index list, compute the
+    corresponding tensor axis, since each 1-D index array occupies one
+    tensor dimension while 0-D scalars do not.
 
     tensor_axes[i]:
-        if axes[i] is None:
-            tensor_axes[i] = None
-        else:
-            a = axes[i]
-            # count how many entries *before* position a in the remaining list
-            # are 1-D arrays (i.e., each contributes one tensor dim)
-            tensor_axes[i] = count of entries e in remain[i][:a]
-                             where np.asarray(e).ndim == 1
+        if axes[i] is None: None
+        else: count of 1-D arrays in remain[i][:axes[i]]
+              (each 1-D array before position a contributes one tensor dim)
 
-    # Example:
-    #   index list for parent i = [scalar(3), arange(5), scalar(1), arange(7)]
-    #   axes[i] = 2  (batch over the second scalar, at position 2)
-    #   remaining (with pos 2 removed) = [scalar(3), arange(5), arange(7)]
-    #   how many 1-D arrays appear before position 2 in remaining?
-    #     remaining[:2] = [scalar(3), arange(5)]  → one 1-D array
-    #   tensor_axes[i] = 1
-    #   (the tensor passed to VMap has shape [5, N, 7] where N is the batch dim,
-    #    and the batch is at tensor axis 1)
+    # e.g. index_lst[i] = [scalar, arange(5), scalar, arange(7)], axes[i]=2
+    #   remaining (pos 2 removed) = [scalar, arange(5), arange(7)]
+    #   remaining[:2] = [scalar, arange(5)] → one 1-D array → tensor_axes[i] = 1
+    #   tensor shape = [5, N, 7], batch is at axis 1
 
-    # Special case: if the tensor has only one dimension after all substitutions
-    # (new_p[i].ndim == 1), force tensor_axes[i] = 0 (or None stays None).
-    # This handles the case where all non-batch index arrays collapsed away.
+    # Special case: if new_parent[i].ndim == 1 after construction,
+    #               force tensor_axes[i] = 0 (or None stays None).
 
 ---
 
-## indices_fill_parent — Detecting No-Op Index
+## indices_fill_parent — Skipping No-Op Index Wrappers
 
-If after reconstruction all index arrays are exactly arange over their
-respective dimension, the Index wrapper is a no-op and we skip it.
-
-    indices_fill_parent(c_rvs, parent):
-        if len(c_rvs) != len(parent.shape):
-            return False
-        for each (idx_rv, dim_size) in zip(c_rvs, parent.shape):
-            val = idx_rv.op.value
-            if val.ndim != 1: return False
-            if len(val) != dim_size: return False
-            if val != arange(dim_size): return False
-        return True
-        # If True, use parent directly instead of wrapping in Index(parent, c_rvs...)
+    if c_rvs covers all dims and each c_rv[j].value == arange(parent.shape[j]):
+        use parent directly instead of Index(parent, c_rvs...)
 
 ---
 
-## need_axis_size — When All Axes Are "None"
+## need_axis_size — All-None Axes Case
 
-If every entry in axes[] is "None", no parent carries an existing tensor
-dimension over which to map.  The batch axis is entirely new, so VMap needs
-an explicit axis_size telling it how many times to replicate the operation.
+    If every axes[i] is None, no existing tensor dimension carries the batch,
+    so VMap needs an explicit axis_size = |group|.
+    Otherwise axis_size is inferred from the mapped tensor dimension.
 
-    need_axis_size = all(ax == "None" for ax in axes)
-    if need_axis_size:
-        op = VMap(base_op, in_axes=tensor_axes, axis_size=len(group))
-    else:
-        op = VMap(base_op, in_axes=tensor_axes)
-        # axis_size is inferred from the size of the tensor at the mapped axis
+---
+
+## per-level fixpoint in run_all_vmaps
+
+    After run_vmap(substituted_group) → group_M:
+
+    while True:
+        frontier ← vmap nodes appearing in group_M.values()
+                    that are not yet keys in group_M
+                    (found by stripping Index wrappers from each value)
+        if empty: break
+
+        M_next ← run_vmap(frontier)
+        made_progress ← any rv where M_next[rv] ≠ rv
+
+        # backward substitution: update existing group_M entries so they
+        # point through M_next's new mappings rather than to stale nodes
+        for orig in group_M:
+            group_M[orig] ← substitute_parents(group_M[orig], M_next)
+        merge M_next into group_M
+
+        if not made_progress: break
+
+    # No backward substitution into earlier levels' M entries needed:
+    # the per-level frontier only creates vmaps from the current level's
+    # outputs, which earlier levels never referenced.

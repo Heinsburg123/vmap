@@ -17,7 +17,7 @@ def test_full_grid():
         for r in range(3) for c in range(3)
     ]
     adds = [RV(Add(), e, e) for e in elems]
-    M = engine.run_to_fixpoint([a] + elems + adds)
+    M = engine.run_all_vmaps([a] + elems + adds)
 
     raw    = sample(adds, niter = 1)
     mapped = sample([M[add] for add in adds], niter=1)
@@ -38,7 +38,7 @@ def test_two_arrays_paired():
     ea   = [RV(Index(), a, RV(Constant(i))) for i in range(5)]
     eb   = [RV(Index(), b, RV(Constant(i))) for i in range(5)]
     adds = [RV(Add(), ea[i], eb[i]) for i in range(5)]
-    M    = engine.run_to_fixpoint([a, b] + ea + eb + adds)
+    M    = engine.run_all_vmaps([a, b] + ea + eb + adds)
 
     raw     = sample(adds, niter=1)
     mapped  = sample([M[add] for add in adds], niter=1)
@@ -59,7 +59,7 @@ def test_broadcast_second_arg():
 
     ea   = [RV(Index(), a, RV(Constant(i))) for i in range(5)]
     adds = [RV(Add(), ea[i], b0) for i in range(5)]
-    M    = engine.run_to_fixpoint([a, b, b0] + ea + adds)
+    M    = engine.run_all_vmaps([a, b, b0] + ea + adds)
 
     raw    = sample(adds, niter=1)
     mapped = sample([M[add] for add in adds], niter=1)
@@ -79,7 +79,7 @@ def test_mixed_ops_same_elems():
     ea   = [RV(Index(), a, RV(Constant(i))) for i in range(5)]
     adds = [RV(Add(), e, e) for e in ea]
     muls = [RV(Mul(), e, e) for e in ea]
-    M    = engine.run_to_fixpoint([a] + ea + adds + muls)
+    M    = engine.run_all_vmaps([a] + ea + adds + muls)
 
     raw_adds    = sample(adds, niter=1)
     mapped_adds = sample([M[add] for add in adds], niter=1)
@@ -102,7 +102,7 @@ def test_large_sweep():
     a    = RV(Constant(list(range(N))))
     ea   = [RV(Index(), a, RV(Constant(i))) for i in range(N)]
     adds = [RV(Add(), e, e) for e in ea]
-    M    = engine.run_to_fixpoint([a] + ea + adds)
+    M    = engine.run_all_vmaps([a] + ea + adds)
 
     raw    = sample(adds, niter=1)
     mapped = sample([M[add] for add in adds], niter=1)
@@ -123,7 +123,7 @@ def test_normal_sweep_mu():
 
     emu   = [RV(Index(), mus, RV(Constant(i))) for i in range(5)]
     norms = [RV(Normal(), e, sigma) for e in emu]
-    M     = engine.run_to_fixpoint([mus, sigma] + emu + norms)
+    M     = engine.run_all_vmaps([mus, sigma] + emu + norms)
 
     # raw    = sample(norms)
     # mapped = sample([M[n] for n in norms], debug=True)
@@ -147,7 +147,7 @@ def test_normal_sweep_both():
     emu    = [RV(Index(), mus,    RV(Constant(i))) for i in range(4)]
     esigma = [RV(Index(), sigmas, RV(Constant(i))) for i in range(4)]
     norms  = [RV(Normal(), emu[i], esigma[i]) for i in range(4)]
-    M      = engine.run_to_fixpoint([mus, sigmas] + emu + esigma + norms)
+    M      = engine.run_all_vmaps([mus, sigmas] + emu + esigma + norms)
 
     raw    = sample(norms)
     mapped = sample([M[n] for n in norms])
@@ -167,7 +167,7 @@ def test_beta_sweep_alpha():
 
     ealpha = [RV(Index(), alphas, RV(Constant(i))) for i in range(4)]
     betas  = [RV(Beta(), e, beta_val) for e in ealpha]
-    M      = engine.run_to_fixpoint([alphas, beta_val] + ealpha + betas)
+    M      = engine.run_all_vmaps([alphas, beta_val] + ealpha + betas)
 
     raw    = sample(betas)
     mapped = sample([M[b] for b in betas])
@@ -188,7 +188,7 @@ def test_gamma_sweep_both():
     ealpha = [RV(Index(), alphas, RV(Constant(i))) for i in range(4)]
     ebeta  = [RV(Index(), betas,  RV(Constant(i))) for i in range(4)]
     gammas = [RV(Gamma(), ealpha[i], ebeta[i]) for i in range(4)]
-    M      = engine.run_to_fixpoint([alphas, betas] + ealpha + ebeta + gammas)
+    M      = engine.run_all_vmaps([alphas, betas] + ealpha + ebeta + gammas)
 
     raw    = sample(gammas)
     mapped = sample([M[g] for g in gammas])
@@ -207,7 +207,7 @@ def test_exponential_sweep():
 
     erate = [RV(Index(), rates, RV(Constant(i))) for i in range(5)]
     exps  = [RV(Exponential(), e) for e in erate]
-    M     = engine.run_to_fixpoint([rates] + erate + exps)
+    M     = engine.run_all_vmaps([rates] + erate + exps)
 
     raw    = sample(exps)
     mapped = sample([M[e] for e in exps])
@@ -226,7 +226,7 @@ def test_poisson_sweep():
 
     elam     = [RV(Index(), lambdas, RV(Constant(i))) for i in range(4)]
     poissons = [RV(Poisson(), e) for e in elam]
-    M        = engine.run_to_fixpoint([lambdas] + elam + poissons)
+    M        = engine.run_all_vmaps([lambdas] + elam + poissons)
 
     raw    = sample(poissons)
     mapped = sample([M[p] for p in poissons])
@@ -245,7 +245,7 @@ def test_bernoulli_sweep():
 
     ep    = [RV(Index(), probs, RV(Constant(i))) for i in range(5)]
     berns = [RV(Bernoulli(), e) for e in ep]
-    M     = engine.run_to_fixpoint([probs] + ep + berns)
+    M     = engine.run_all_vmaps([probs] + ep + berns)
 
     raw    = sample(berns)
     mapped = sample([M[b] for b in berns], debug=True)
@@ -266,7 +266,7 @@ def test_unary_ops_same_array():
     exps = [RV(Exp(), e) for e in ea]
     logs = [RV(Log(), e) for e in ea]
     sins = [RV(Sin(), e) for e in ea]
-    M    = engine.run_to_fixpoint([a] + ea + exps + logs + sins)
+    M    = engine.run_all_vmaps([a] + ea + exps + logs + sins)
 
     raw_exps    = sample(exps, niter=1)
     mapped_exps = sample([M[e] for e in exps], niter=1)
@@ -299,7 +299,7 @@ def test_studentt_sweep_all():
     emu    = [RV(Index(), mus,    RV(Constant(i))) for i in range(4)]
     esigma = [RV(Index(), sigmas, RV(Constant(i))) for i in range(4)]
     ts     = [RV(StudentT(), enu[i], emu[i], esigma[i]) for i in range(4)]
-    M      = engine.run_to_fixpoint([nus, mus, sigmas] + enu + emu + esigma + ts)
+    M      = engine.run_all_vmaps([nus, mus, sigmas] + enu + emu + esigma + ts)
 
     raw    = sample(ts)
     mapped = sample([M[t] for t in ts])
@@ -320,7 +320,7 @@ def test_mixed_dists_same_parent():
     emu    = [RV(Index(), mus, RV(Constant(i))) for i in range(4)]
     norms  = [RV(Normal(), e, scale) for e in emu]
     cauchs = [RV(Cauchy(),  e, scale) for e in emu]
-    M      = engine.run_to_fixpoint([mus, scale] + emu + norms + cauchs)
+    M      = engine.run_all_vmaps([mus, scale] + emu + norms + cauchs)
 
     raw_norms    = sample(norms)
     mapped_norms = sample([M[n] for n in norms])
@@ -348,7 +348,7 @@ def test_arithmetic_diversity():
     subs = [RV(Sub(), ea[i], eb[i]) for i in range(4)]
     divs = [RV(Div(), ea[i], eb[i]) for i in range(4)]
     pows = [RV(Pow(), ea[i], eb[i]) for i in range(4)]
-    M    = engine.run_to_fixpoint([a, b] + ea + eb + subs + divs + pows)
+    M    = engine.run_all_vmaps([a, b] + ea + eb + subs + divs + pows)
 
     raw_subs    = sample(subs, niter=1)
     mapped_subs = sample([M[s] for s in subs], niter=1)
@@ -380,7 +380,7 @@ def test_chained_unary():
     sins = [RV(Sin(), e) for e in ea]
     coss = [RV(Cos(), s) for s in sins]
     stuff = [RV(Add(), e, l) for (e, l) in zip(exps, logs, strict=True)]
-    M = engine.run_to_fixpoint([a] + ea + exps + logs + sins + coss + stuff)
+    M = engine.run_all_vmaps([a] + ea + exps + logs + sins + coss + stuff)
 
     raw_stuff    = sample(stuff, niter=1)
     mapped_stuff = sample([M[s] for s in stuff], niter=1)
@@ -407,7 +407,7 @@ def test_normal_with_transformed_params():
     esigma = [RV(Index(), raw_sigma, RV(Constant(i))) for i in range(4)]
     tsigma = [RV(Exp(), e) for e in esigma]
     norms  = [RV(Normal(), emu[i], tsigma[i]) for i in range(4)]
-    M      = engine.run_to_fixpoint([raw_mu, raw_sigma] + emu + esigma + tsigma + norms)
+    M      = engine.run_all_vmaps([raw_mu, raw_sigma] + emu + esigma + tsigma + norms)
 
     raw    = sample(norms)
     mapped = sample([M[n] for n in norms])
