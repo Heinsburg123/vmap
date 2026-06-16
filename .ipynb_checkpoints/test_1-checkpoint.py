@@ -151,7 +151,7 @@ def test_normal_sweep_both():
 
     raw    = sample(norms)
     mapped = sample([M[n] for n in norms])
-    print_upstream([M[n] for n in norms])
+
     for r, m in zip(raw, mapped):
         assert np.isclose(np.mean(r), np.mean(m)), \
             f"Normal mean mismatch: raw={np.mean(r)}, mapped={np.mean(m)}"
@@ -209,8 +209,8 @@ def test_exponential_sweep():
     exps  = [RV(Exponential(), e) for e in erate]
     M     = engine.run_to_fixpoint([rates] + erate + exps)
 
-    raw    = sample(exps)
-    mapped = sample([M[e] for e in exps])
+    raw    = sample(exps, niter=1000000)
+    mapped = sample([M[e] for e in exps], niter=1000000)
     graph_upstream([M[e] for e in exps])
     for r, m in zip(raw, mapped):
         assert np.isclose(np.mean(r), np.mean(m)), \
@@ -247,8 +247,8 @@ def test_bernoulli_sweep():
     berns = [RV(Bernoulli(), e) for e in ep]
     M     = engine.run_to_fixpoint([probs] + ep + berns)
 
-    raw    = sample(berns)
-    mapped = sample([M[b] for b in berns], debug=True)
+    raw    = sample(berns, niter=1000000)
+    mapped = sample([M[b] for b in berns], niter=1000000)
 
     for r, m in zip(raw, mapped):
         assert np.isclose(np.mean(r), np.mean(m)), \
@@ -421,7 +421,7 @@ def test_normal_with_transformed_params():
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # test_full_grid()
-    test_two_arrays_paired()
+    # test_two_arrays_paired()
     # test_broadcast_second_arg()
     # test_mixed_ops_same_elems()
     # test_large_sweep()
@@ -437,4 +437,4 @@ if __name__ == "__main__":
     # test_mixed_dists_same_parent()
     # test_arithmetic_diversity()
     # test_chained_unary()
-    # test_normal_with_transformed_params()
+    test_normal_with_transformed_params()
