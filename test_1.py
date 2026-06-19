@@ -1,5 +1,5 @@
 from pangolin.ir import *
-from engine import VmapEngine
+from engine2 import VmapEngine
 from jags_pangolin.engine import Sample_prob
 
 sample = Sample_prob().sample
@@ -421,14 +421,14 @@ def test_normal_with_transformed_params():
 # ─────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # test_full_grid()
-    test_two_arrays_paired()
+    # test_two_arrays_paired()
     # test_broadcast_second_arg()
     # test_mixed_ops_same_elems()
     # test_large_sweep()
     # test_normal_sweep_mu()
     # test_normal_sweep_both()
     # test_beta_sweep_alpha()
-    # test_gamma_sweep_both()
+    test_gamma_sweep_both()
     # test_exponential_sweep()
     # test_poisson_sweep()
     # test_bernoulli_sweep()

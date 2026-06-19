@@ -1,6 +1,6 @@
 from pangolin.ir import *
 from pangolin import interface as pi
-from engine import VmapEngine
+from engine2 import VmapEngine
 from jags_pangolin.engine import Sample_prob
 from jax import numpy as jnp
 import numpy as np
@@ -247,6 +247,7 @@ def test_matrix_vector_product():
     M = engine.run_all_vmaps([e1, e2])
     print_upstream([M[e1], M[e2]])
     rv1 = M[e1]
+    print(rv1)
     assert rv1.op == Index()
     vmap_add1 = rv1.parents[0]
     assert vmap_add1.op == VMap(Add(), in_axes =[0,0])
@@ -407,3 +408,4 @@ def test_weird():
         
     assert rv_equal(M[ys[0]].parents[0], M[ys[1]].parents[0])
 
+test_matrix_vector_product()

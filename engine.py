@@ -9,6 +9,7 @@ from pangolin.dag import *
 class VmapEngine:
     adj = {}
     visited = {}
+    
     def get_resolved_parent(self, rv):
         tmp = rv
         while(tmp.op.name == "Index"):
@@ -423,4 +424,4 @@ class VmapEngine:
                 if node not in sub_to_orig:
                     M[node] = replacement
 
-        return M
+        return M        
