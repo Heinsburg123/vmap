@@ -1,6 +1,6 @@
 from pangolin.ir import *
 from pangolin import interface as pi
-from engine2 import VmapEngine
+from engine3 import VmapEngine
 from jags_pangolin.engine import Sample_prob
 from jax import numpy as jnp
 import numpy as np
@@ -25,7 +25,7 @@ def test_merge_constants_downstream():
     xs = [pi.constant(2*i) for i in range(5)]
     ys = [x + 1 for x in xs]
     M = engine.run_all_vmaps(ys)
-    # print_upstream([M[y] for y in ys])
+    print_upstream([M[y] for y in ys])
     arr = [2*i for i in range(5)]
     arr += [1 for _ in range(5)]
     x_new = RV(Index(), RV(Constant(arr)), RV(Constant([0,1,2,3,4])))
@@ -247,7 +247,6 @@ def test_matrix_vector_product():
     M = engine.run_all_vmaps([e1, e2])
     print_upstream([M[e1], M[e2]])
     rv1 = M[e1]
-    print(rv1)
     assert rv1.op == Index()
     vmap_add1 = rv1.parents[0]
     assert vmap_add1.op == VMap(Add(), in_axes =[0,0])
@@ -408,4 +407,49 @@ def test_weird():
         
     assert rv_equal(M[ys[0]].parents[0], M[ys[1]].parents[0])
 
-test_matrix_vector_product()
+def test_bayesian_neural_network_stress():
+
+    n_inputs = 20     
+    hidden = 15        
+
+    w1 = [pi.normal(0, 1) for _ in range(hidden)]        # hidden weights
+    b1 = [pi.normal(0, 1) for _ in range(hidden)]        # hidden biases
+    w2 = [pi.normal(0, 1) for _ in range(hidden)]        # output weights
+    b2 = pi.normal(0, 1)                                  # output bias
+    sigma = pi.constant(0.5)
+
+    xs = [pi.constant(float(i)) for i in range(n_inputs)]
+
+    ys = []
+    for x in xs:
+        hidden_acts = [pi.tanh(w1[j] * x + b1[j]) for j in range(hidden)]
+        out = b2
+        for j in range(hidden):
+            out = out + w2[j] * hidden_acts[j]
+        y = pi.normal(out, sigma)
+        ys.append(y)
+
+    M = engine.run_all_vmaps(ys)
+    print_upstream([M[y] for y in ys])
+
+def test_hierarchical_model_practical():
+    n_groups = 8
+    n_obs_per_group = 5
+
+    mu_pop = pi.normal(0, 10)      
+    tau = pi.constant(1.0)         
+    sigma = pi.constant(0.5)   
+    
+    group_means = [pi.normal(mu_pop, tau) for _ in range(n_groups)]
+
+    observations = []
+    for g in range(n_groups):
+        for i in range(n_obs_per_group):
+            y = pi.normal(group_means[g], sigma)
+            observations.append(y)
+
+    M = engine.run_all_vmaps(observations)
+    print_upstream([M[y] for y in observations])
+
+test_hierarchical_model_practical()
+

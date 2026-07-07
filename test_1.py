@@ -1,5 +1,5 @@
 from pangolin.ir import *
-from engine2 import VmapEngine
+from engine3 import VmapEngine
 from jags_pangolin.engine import Sample_prob
 
 sample = Sample_prob().sample

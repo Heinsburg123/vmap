@@ -337,7 +337,6 @@ class VmapEngine:
                 for x in new_p:
                     final_args.append(x)
                 vmap = RV(*final_args)
-                print(f"Created vmap: {vmap}")
                 for i, original_rv in enumerate(final_bucket[key2]):
                     index_args = [Index(), vmap, get_const_rv(i)]  # optimization 2
                     for dim_size in vmap.shape[1:]: 
