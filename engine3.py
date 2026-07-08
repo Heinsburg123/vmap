@@ -3,6 +3,7 @@ import numpy as np
 from pangolin.ir import *
 from pangolin.dag import *
 from DRV import DRV
+from bucket_heap import BucketHeap, _priority
 
 class VmapEngine:    
     def get_resolved_parent(self, drv):
@@ -99,16 +100,6 @@ class VmapEngine:
 
         return hash_keys
 
-    def build_buckets(self, DRVs):
-        self.index_rv = {}
-        buckets = {}
-
-        for drv in DRVs:
-            for hash_key in self.compute_hash_keys(drv):
-                buckets.setdefault(hash_key, []).append(drv)
-
-        return buckets
-        
     def build_new_parents(self, key, group):
         new_parents = []
         final_axes  = []
@@ -156,44 +147,37 @@ class VmapEngine:
                     final_axes.append(tensor_ax)
         return new_parents, final_axes
 
-    def run_vmap(self, DRVs):
-        buckets = self.build_buckets(DRVs)
-        if not buckets:
-            return False
- 
-        def priority(item):
-            key, group = item
-            none_count = sum(
-                1 for pk in key[1:]
-                if not isinstance(pk, tuple)                      
-                or (len(pk) == 3 and pk[1] == "None")          
-            )
-            return (len(group), none_count)
- 
-        best_key, group = max(buckets.items(), key=priority)
-        if len(group) <= 1:
-            return False
- 
+
+    def run_vmap(self, DRVs, heap, best_key, group):
         def sort_key(drv):
             return tuple(
                 int(self.index_rv[drv._n][i][pk[1]])
                 for i, pk in enumerate(best_key[1:])
                 if isinstance(pk, tuple) and len(pk) == 3 and pk[1] != "None"
             )
-        group.sort(key=sort_key)
- 
+        group = sorted(group, key=sort_key)
+
         new_parents, final_axes = self.build_new_parents(best_key, group)
- 
+
         need_axis_size = all(a is None for a in final_axes)
         op = VMap(best_key[0], in_axes=tuple(final_axes),
                   **({"axis_size": len(group)} if need_axis_size else {}))
         vmap_drv = DRV.fresh(op, new_parents)
         DRVs.append(vmap_drv)
- 
+
+        touched = heap.dependents_of(group)
+
+        heap.remove_group(group)
+
         for idx, drv in enumerate(group):
             drv.update(Index(), [vmap_drv, self.get_const_drv(idx)]
                        + [self.get_const_drv(list(range(d))) for d in vmap_drv.shape[1:]])
-        return True
+
+        heap.add_drv(vmap_drv)
+
+        heap.refresh(touched)
+
+        return vmap_drv
 
     def run_all_vmaps(self, RVs):
         self.const_cache = {}
@@ -201,8 +185,14 @@ class VmapEngine:
 
         DRVs = [DRV.from_rv(rv) for rv in upstream_nodes(RVs)]
 
-        while self.run_vmap(DRVs):
-            pass
+        heap = BucketHeap(self)
+        heap.build(DRVs)
+
+        while True:
+            best_key, group = heap.pop_max()
+            if best_key is None:
+                break
+            self.run_vmap(DRVs, heap, best_key, list(group))
 
         rv_cache = {}
         def to_rv(drv):

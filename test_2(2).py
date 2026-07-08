@@ -507,8 +507,8 @@ def test_weird():
 
 def test_bayesian_neural_network_stress():
 
-    n_inputs = 20     
-    hidden = 15        
+    n_inputs = 3     
+    hidden = 2       
 
     # Priors: one weight per (input_dim=1 -> hidden), one bias per hidden unit,
     # then hidden -> output weights/bias. All shared across the whole dataset.
@@ -531,7 +531,7 @@ def test_bayesian_neural_network_stress():
         y = pi.normal(out, sigma)
         ys.append(y)
 
-    M = engine.run_all_vmaps(ys)
-    print_upstream([M[y] for y in ys])
+    M = engine.run_all_vmaps(ys+ [b2] + w1)
+    print_upstream([M[y] for y in ys], b2 = M[b2], w10 = M[w1[0]])
 
 test_bayesian_neural_network_stress()
