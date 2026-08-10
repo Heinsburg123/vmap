@@ -1,12 +1,11 @@
 from pangolin.ir import *
 from pangolin import interface as pi
 from engine3 import VmapEngine
-from jags_pangolin.engine import Sample_prob
 from jax import numpy as jnp
 import numpy as np
 import sys 
+import pdb 
 
-sample = Sample_prob().sample
 engine = VmapEngine()
 np.set_printoptions(threshold=sys.maxsize, linewidth=1000)
 jnp.set_printoptions(threshold=sys.maxsize, linewidth=1000)
@@ -14,7 +13,7 @@ jnp.set_printoptions(threshold=sys.maxsize, linewidth=1000)
 def test_merge_constants_downstream():
     xs = [pi.constant(2*i) for i in range(5)]
     ys = [x + 1 for x in xs]
-    M = engine.run_all_vmaps(ys)
+    M = engine.run_all_vmaps(ys, {})
     print_upstream([M[y] for y in ys])
     x_new = pi.constant([0, 2, 4, 6, 8])
     y_new = pi.constant(1)
@@ -26,6 +25,8 @@ def test_merge_constants_downstream():
         assert M[y].op == Index()
         assert M[y].parents[0] == vmap
         assert M[y].parents[1].op == Constant(i)
+
+# test_merge_constants_downstream()
 
 def test_autobatch_normal_shared_params():
     m = pi.constant(0)
@@ -489,7 +490,7 @@ def test_matrix_matrix_product_3():
     inter_group_b = M[C_flat[2]].parents[0].parents[0].parents[0]
     assert not rv_equal(inter_group_a, inter_group_b)
 
-# test_matrix_matrix_product_3()
+test_matrix_matrix_product_3()
 
 def test_weird():
     x = pi.constant([[0,1,2], [3,4,5]])
@@ -504,6 +505,21 @@ def test_weird():
 
         assert vmap_mul_nested.op == VMap(VMap(Mul(), in_axes=[0, None], axis_size=2), in_axes=[0, 0])
     assert rv_equal(M[ys[0]].parents[0], M[ys[1]].parents[0])
+test_weird()
+def test_full_grid():
+    print("\n=== TEST 3: Full grid (vary row AND col) ===")
+    a = RV(Constant([[1,2,3],[4,5,6],[7,8,9]]))
+
+    elems = [
+        RV(Index(), a, RV(Constant(r)), RV(Constant(c)))
+        for r in range(3) for c in range(3)
+    ]
+    adds = [RV(Add(), e, e) for e in elems]
+    M = engine.run_all_vmaps([a] + elems + adds)
+
+    print_upstream([M[a] for a in adds])
+
+# test_full_grid()
 
 def test_bayesian_neural_network_stress():
 
@@ -534,4 +550,4 @@ def test_bayesian_neural_network_stress():
     M = engine.run_all_vmaps(ys+ [b2] + w1)
     print_upstream([M[y] for y in ys], b2 = M[b2], w10 = M[w1[0]])
 
-test_bayesian_neural_network_stress()
+# test_bayesian_neural_network_stress()

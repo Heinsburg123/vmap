@@ -1,0 +1,13 @@
+========================================================================================================================
+model                          niter      raw(s)       mapped(s)  hand_vmap(s)   speedup  hv_speedup
+----------------------------------------------------------------------------------------------------
+random_slopes_mixed_effects     1000     72.7848          4.1084        3.2384     17.72       22.48
+irt_2pl_psychometrics           1000     70.6351          2.7616        2.0009     25.58       35.30
+bayesian_matrix_factorization    1000     88.6592          3.3503        2.7193     26.46       32.60
+fir_time_series_filter          1000     20.6822          2.3665        2.9178      8.74        7.09
+poisson_claims_with_exposure    1000      2.6292          0.8939        0.7493      2.94        3.51
+kernel_weighted_regression      1000      4.5880          1.4286        1.2286      3.21        3.73
+meta_analysis_ragged_groups     1000     20.1606          1.7178        1.6694     11.74       12.08
+survival_covariate_shape        1000     66.4386          1.8846        1.5665     35.25       42.41
+crossed_effects_multiplicative    1000     35.8005          2.0563        2.1384     17.41       16.74
+heteroskedastic_robust_regression    1000     41.0763          1.7215        1.4449     23.86       28.43

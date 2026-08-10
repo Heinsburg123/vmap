@@ -1,14 +1,13 @@
 import heapq
 
-
 def _priority(hash_key, group):
     none_count = sum(
         1 for pk in hash_key[1:]
         if not isinstance(pk, tuple)
         or (len(pk) == 3 and pk[1] == "None")
     )
+    none_count = 0
     return (len(group), none_count)
-
 
 class BucketHeap:
 

@@ -54,6 +54,17 @@ class VmapEngine:
         if drv.op.name in ("Constant", "Index"):
             return []
 
+        # Given/observed-status separation: two RVs that would otherwise
+        # hash identically (same op, same parent structure) must NOT be
+        # grouped into the same VMap bucket if one is observed data and the
+        # other is a free latent -- fusing them would make it impossible to
+        # condition on just the observed subset afterward (the fused node
+        # would have no single consistent "given value" to assign). Adding
+        # this as a factor of the hash key ensures observed/unobserved RVs
+        # can never collide into the same bucket, while leaving all other
+        # grouping logic (parent/axis structure) untouched.
+        is_given = drv._n in getattr(self, "given_ns", ())
+
         axes_options = []
         drv_indices  = []
 
@@ -96,7 +107,7 @@ class VmapEngine:
                                            for k in range(len(idd)) if k != ax)
                     parent_key.append((p.parents[0], ax, remain_key))
 
-            hash_keys.append((drv.op, *parent_key))
+            hash_keys.append((drv.op, is_given, *parent_key))
 
         return hash_keys
 
@@ -104,7 +115,7 @@ class VmapEngine:
         new_parents = []
         final_axes  = []
 
-        for i, pk in enumerate(key[1:]):
+        for i, pk in enumerate(key[2:]):
             if not isinstance(pk, tuple):
                 new_parents.append(group[0].parents[i])
                 final_axes.append(None)
@@ -152,7 +163,7 @@ class VmapEngine:
         def sort_key(drv):
             return tuple(
                 int(self.index_rv[drv._n][i][pk[1]])
-                for i, pk in enumerate(best_key[1:])
+                for i, pk in enumerate(best_key[2:])
                 if isinstance(pk, tuple) and len(pk) == 3 and pk[1] != "None"
             )
         group = sorted(group, key=sort_key)
@@ -179,11 +190,21 @@ class VmapEngine:
 
         return vmap_drv
 
-    def run_all_vmaps(self, RVs):
+    def run_all_vmaps(self, RVs, given_map=None):
+        given_map = given_map or {}
         self.const_cache = {}
+        self.index_rv = {}
         DRV.memo.clear()
 
         DRVs = [DRV.from_rv(rv) for rv in upstream_nodes(RVs)]
+
+        # Resolve each given/observed RV to its corresponding DRV node id.
+        # This must happen AFTER the DRVs above are built (so DRV.memo is
+        # populated), so that DRV.from_rv(rv) here returns the SAME
+        # (memoized) DRV instance already present in `DRVs`, rather than a
+        # fresh orphan. compute_hash_keys uses this set to keep observed
+        # and unobserved RVs from ever being grouped into the same bucket.
+        self.given_ns = {DRV.from_rv(rv)._n for rv in given_map}
 
         heap = BucketHeap(self)
         heap.build(DRVs)
@@ -204,4 +225,5 @@ class VmapEngine:
 
         for drv in DRVs:
             to_rv(drv)
-        return {rv: rv_cache[rv._n] for rv in RVs}
+            
+        return {rv: rv_cache[rv._n] for rv in upstream_nodes(RVs)}
